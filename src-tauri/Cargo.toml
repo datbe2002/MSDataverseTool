@@ -42,6 +42,8 @@ webbrowser = "1"
 
 [profile.release]
 opt-level = "s"
-lto = true
-codegen-units = 1
+# Thin LTO on parallel codegen units: fat LTO with a single unit made the
+# release build (DataFusion is big) take over an hour on a GitHub runner,
+# for an exe only ~10-20% smaller.
+lto = "thin"
 strip = true
