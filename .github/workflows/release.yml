@@ -1,0 +1,52 @@
+# Builds the Windows installer and publishes it on the Releases page.
+# Release: bump the version (package.json, src-tauri/Cargo.toml,
+# src-tauri/tauri.conf.json), commit, then push a matching tag:
+#   git tag v0.2.0 && git push origin v0.2.0
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Hexa Studio ${{ github.ref_name }}"
+          releaseBody: |
+            ### Download
+            Download **`Hexa Studio_*_x64-setup.exe`** below and run it — it installs for your user only, no admin rights needed.
+
+            Windows may show **"Windows protected your PC"** because the app isn't code-signed yet: click **More info → Run anyway**.
+
+            ### Requirements
+            - Windows 10/11 (64-bit). WebView2 is installed automatically if missing.
+            - A Dataverse account for the environments you want to open.
+            - Only for the TDS endpoint and for INSERT / UPDATE / DELETE: [ODBC Driver 17 for SQL Server](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server).
+          releaseDraft: false
+          prerelease: false
+          # The per-user setup.exe is enough to share; skipping the MSI saves a WiX download.
+          args: --bundles nsis

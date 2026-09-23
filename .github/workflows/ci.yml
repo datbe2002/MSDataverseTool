@@ -1,0 +1,33 @@
+# Type-checks and builds the frontend, then runs the Rust tests (they use fake
+# Web API servers, no Dataverse needed). Windows only: the app links odbc32.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - run: npm ci
+
+      # Also produces dist/, which the Tauri build embeds.
+      - run: npm run build
+
+      - run: cargo test
+        working-directory: src-tauri
