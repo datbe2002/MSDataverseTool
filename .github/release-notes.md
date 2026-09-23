@@ -1,5 +1,5 @@
 ### Download
-Download **`Hexa Studio_*_x64-setup.exe`** below and run it — it installs for your user only, no admin rights needed.
+Download **`Hexa.Studio_*_x64-setup.exe`** below and run it — it installs for your user only, no admin rights needed.
 
 Windows may show **"Windows protected your PC"** because the app isn't code-signed yet: click **More info → Run anyway**.
 

@@ -10,7 +10,7 @@ A modern, friendly desktop toolkit for **Power Platform / Dataverse**:
 
 ## Download
 
-Get the latest **`Hexa Studio_*_x64-setup.exe`** from the
+Get the latest **`Hexa.Studio_*_x64-setup.exe`** from the
 [Releases page](https://github.com/datbe2002/MSDataverseTool/releases/latest)
 and run it. It installs for your Windows user only (no admin rights).
 
