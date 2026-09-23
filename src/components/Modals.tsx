@@ -4,6 +4,7 @@ import { X, Compass, Loader, Plus, Database, AlertTriangle, Pencil, Check, Folde
 import { TAG_COLORS, TAG_PRESETS, tagStyle } from "../lib/tags";
 import { comboFromEvent, formatCombo, isValidBinding, DEFAULT_KEYS } from "../lib/keys";
 import { TagBadge } from "./TagBadge";
+import { useUpdater } from "../lib/updater";
 import { tabTitle } from "../lib/tabs";
 import type { Connection, Project } from "../types";
 
@@ -508,6 +509,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Settings" onClose={onClose}>
       <div className="space-y-5">
+        <Updates />
+        <div className="h-px bg-line" />
         <RunShortcuts />
         <div className="h-px bg-line" />
         <div>
@@ -587,6 +590,40 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Running version + a manual "Check for updates" (background checks run every few hours). */
+function Updates() {
+  const u = useUpdater();
+  const busy = u.status === "checking" || u.status === "downloading" || u.status === "installing";
+  const line =
+    u.status === "checking" ? "Checking for updates…"
+    : u.status === "downloading" ? `Downloading ${u.version}${u.progress != null ? ` · ${Math.round(u.progress * 100)}%` : "…"}`
+    : u.status === "ready" ? `Version ${u.version} is ready to install.`
+    : u.status === "installing" ? "Restarting to update…"
+    : u.status === "upToDate" ? "You're on the latest version."
+    : u.status === "error" ? `Couldn't check for updates: ${u.error}`
+    : u.checkedAt ? "You're on the latest version." : "Updates are checked automatically every few hours.";
+  return (
+    <div className="flex items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">
+          Hexa Studio {u.currentVersion ? <span className="font-mono text-[12.5px] text-muted">v{u.currentVersion}</span> : null}
+        </div>
+        <div className={`mt-0.5 text-xs leading-relaxed break-words ${u.status === "error" ? "text-danger" : "text-subtle"}`} role="status">
+          {line}
+        </div>
+      </div>
+      {u.status === "ready" ? (
+        <button onClick={u.install} className="btn btn-primary btn-sm shrink-0">Restart to update</button>
+      ) : (
+        <button onClick={u.checkNow} disabled={busy} className="btn btn-secondary btn-sm shrink-0">
+          {busy && <Loader size={13} />}
+          Check for updates
+        </button>
+      )}
+    </div>
   );
 }
 

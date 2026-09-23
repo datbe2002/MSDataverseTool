@@ -15,6 +15,7 @@ import {
   PanelLeftOpen,
 } from "./Icon";
 import { Logo } from "./Logo";
+import { UpdateNotice } from "./UpdateNotice";
 import { tagStyle } from "../lib/tags";
 import { ROUTES } from "../lib/navigation";
 import { useStore, activeProjectOf } from "../store";
@@ -160,6 +161,8 @@ export function Sidebar({ onSettings }: Props) {
       </nav>
 
       <div className="flex-1" />
+
+      <UpdateNotice collapsed={collapsed} />
 
       {/* Account of the project in context + settings */}
       <div className="border-t border-line p-2.5">

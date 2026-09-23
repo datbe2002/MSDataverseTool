@@ -553,6 +553,7 @@ fn set_settings(client_id: String, tenant: String, worker_threads: u32) -> AppRe
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .setup(|_app| {
             // Wraps a pre-projects install (one account + its connections)

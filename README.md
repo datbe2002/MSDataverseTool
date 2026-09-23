@@ -17,6 +17,11 @@ and run it. It installs for your Windows user only (no admin rights).
 > The app isn't code-signed yet, so Windows may show **"Windows protected your
 > PC"**: click **More info → Run anyway**.
 
+From 0.2.0 on the app **updates itself**: it checks for a new version in the
+background, downloads it, and shows **Restart to update** in the sidebar
+(or use **Settings → Check for updates**). Versions before 0.2.0 need the new
+installer run once by hand.
+
 Needs Windows 10/11 (64-bit); WebView2 is installed automatically if missing.
 The [ODBC Driver 17 for SQL Server](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server)
 is only needed for the TDS endpoint and for INSERT / UPDATE / DELETE.
@@ -75,6 +80,14 @@ publishes it on the Releases page (`.github/workflows/release.yml`):
 1. Bump the version in `package.json`, `src-tauri/Cargo.toml` and
    `src-tauri/tauri.conf.json`, and commit.
 2. `git tag v0.2.0 && git push origin v0.2.0`
+
+The release also carries `latest.json`, the feed installed apps read for
+updates. Installers are signed for the updater with a key made once by
+`npx tauri signer generate`: its public half is `plugins.updater.pubkey` in
+`tauri.conf.json`, the private half and its password are the repo secrets
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep a
+backup of the private key — without it, installed apps can't update to newer
+builds and need a manual reinstall.
 
 ## How it works
 

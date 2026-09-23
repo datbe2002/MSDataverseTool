@@ -3,6 +3,8 @@ Download **`Hexa.Studio_*_x64-setup.exe`** below and run it — it installs for 
 
 Windows may show **"Windows protected your PC"** because the app isn't code-signed yet: click **More info → Run anyway**.
 
+Already on 0.2.0 or later? The app updates itself — look for **Restart to update** in the sidebar.
+
 ### Requirements
 - Windows 10/11 (64-bit). WebView2 is installed automatically if missing.
 - A Dataverse account for the environments you want to open.

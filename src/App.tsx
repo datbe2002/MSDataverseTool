@@ -18,6 +18,7 @@ import {
 } from "./components/Modals";
 import { matchesBinding } from "./lib/keys";
 import { ROUTES } from "./lib/navigation";
+import { startUpdateChecks } from "./lib/updater";
 import type { Connection, Project } from "./types";
 
 /** Modal openers handed to routed views through the outlet context. */
@@ -46,6 +47,8 @@ export function RootLayout() {
     init();
     loadSettings();
   }, [init, loadSettings]);
+
+  useEffect(() => startUpdateChecks(), []);
 
   // User-configurable run shortcut. Capture phase so F5 beats the webview's
   // reload and Monaco's own handlers.
