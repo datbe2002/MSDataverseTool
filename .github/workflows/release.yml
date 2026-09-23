@@ -16,9 +16,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -31,23 +31,24 @@ jobs:
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The per-user setup.exe is enough to share; skipping the MSI saves a WiX download.
+      - name: Build the installer
+        run: npm run tauri build -- --bundles nsis
+
+      # Kept on the run page too, so a failed publish doesn't cost the build.
+      - name: Keep the installer as a run artifact
+        uses: actions/upload-artifact@v6
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Hexa Studio ${{ github.ref_name }}"
-          releaseBody: |
-            ### Download
-            Download **`Hexa Studio_*_x64-setup.exe`** below and run it — it installs for your user only, no admin rights needed.
+          name: hexa-studio-setup
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
 
-            Windows may show **"Windows protected your PC"** because the app isn't code-signed yet: click **More info → Run anyway**.
-
-            ### Requirements
-            - Windows 10/11 (64-bit). WebView2 is installed automatically if missing.
-            - A Dataverse account for the environments you want to open.
-            - Only for the TDS endpoint and for INSERT / UPDATE / DELETE: [ODBC Driver 17 for SQL Server](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server).
-          releaseDraft: false
-          prerelease: false
-          # The per-user setup.exe is enough to share; skipping the MSI saves a WiX download.
-          args: --bundles nsis
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" src-tauri/target/release/bundle/nsis/*.exe \
+            --title "Hexa Studio $GITHUB_REF_NAME" \
+            --notes-file .github/release-notes.md \
+            --verify-tag
