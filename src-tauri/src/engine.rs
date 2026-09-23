@@ -290,6 +290,8 @@ impl Limiter {
         }
     }
 
+    /// Only the tests look at the current limit.
+    #[cfg(test)]
     fn allowed(&self) -> usize {
         self.state.lock().map(|s| s.0).unwrap_or(1)
     }
