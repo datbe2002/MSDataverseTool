@@ -24,7 +24,7 @@ import { indexFlow } from "../lib/flowRefs";
 import { queryTerms, searchSteps } from "../lib/flowSearch";
 import { StepSearchBox } from "./StepSearch";
 import { StepIcon } from "./StepIcon";
-import { FlowStepPanel } from "./FlowStepPanel";
+import { FlowStepPanel, type PanelTab } from "./FlowStepPanel";
 import { ArrowUpRight, ChevronDown } from "./Icon";
 
 interface Props {
@@ -199,6 +199,7 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
     return map;
   }, [outline]);
   const selected = selectedId ? stepsById.get(selectedId) ?? null : null;
+  const [panelTab, setPanelTab] = useState<PanelTab>("parameters");
 
   // Search: matching cards are marked, the rest fade; picking one selects it
   // (which opens its containers and scrolls it into view).
@@ -428,6 +429,8 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
         <FlowStepPanel
           key={selected.id}
           step={selected}
+          tab={panelTab}
+          onTab={setPanelTab}
           index={index}
           onSelectKey={selectKey}
           flowName={flowName}

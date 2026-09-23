@@ -1,6 +1,6 @@
 // Designer side panel: what one flow step does, readable — its inputs with
 // expressions highlighted, what it runs after, what it reads and who reads it.
-import { useState, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type { OutlineNode } from "../lib/flowOutline";
 import {
   conditionLines,
@@ -25,8 +25,19 @@ interface Ctx {
   onSelectKey: (key: string) => void;
 }
 
+export type PanelTab = "parameters" | "settings" | "data";
+
+const PANEL_TABS: [PanelTab, string][] = [
+  ["parameters", "Parameters"],
+  ["settings", "Settings"],
+  ["data", "Data"],
+];
+
 interface Props extends Ctx {
   step: OutlineNode;
+  /** Kept by the designer so the same tab stays open while moving between steps. */
+  tab: PanelTab;
+  onTab: (tab: PanelTab) => void;
   flowName: (flowId: string) => string | null;
   onOpenFlow: (flowId: string) => void;
   onShowInJson: () => void;
@@ -43,7 +54,7 @@ const STATUS_TONE: Record<string, string> = {
 /** Keys shown in their own sections, not again under Settings. */
 const SHOWN = new Set(["type", "kind", "inputs", "runAfter", "expression", "foreach", "limit", "metadata", "actions", "else", "cases", "default", "recurrence"]);
 
-export function FlowStepPanel({ step, index, onSelectKey, flowName, onOpenFlow, onShowInJson, onClose }: Props) {
+export function FlowStepPanel({ step, tab, onTab, index, onSelectKey, flowName, onOpenFlow, onShowInJson, onClose }: Props) {
   const ctx: Ctx = { index, onSelectKey };
   const raw = step.raw ?? {};
   const inputs = isObject(raw.inputs) ? raw.inputs : raw.inputs;
@@ -60,6 +71,32 @@ export function FlowStepPanel({ step, index, onSelectKey, flowName, onOpenFlow, 
   const touched = index.stepVariables.get(step.key);
   // Declared here first, then changed here, then only read here.
   const variableNames = touched ? [...new Set([...touched.declares, ...touched.writes, ...touched.reads])] : [];
+  const dataCount = variableNames.length + uses.length + usedBy.length;
+  const hasOtherInputs = otherInputs !== undefined && !(isObject(otherInputs) && Object.keys(otherInputs).length === 0);
+  const hasParameters =
+    !!step.childFlowId ||
+    raw.expression !== undefined ||
+    raw.foreach !== undefined ||
+    raw.recurrence !== undefined ||
+    raw.limit !== undefined ||
+    !!host ||
+    parameters !== undefined ||
+    hasOtherInputs;
+
+  // Arrow keys move between tabs (WAI-ARIA tabs pattern).
+  const onTabKey = (e: KeyboardEvent) => {
+    const at = PANEL_TABS.findIndex(([k]) => k === tab);
+    const next =
+      e.key === "ArrowRight" ? (at + 1) % PANEL_TABS.length
+      : e.key === "ArrowLeft" ? (at + PANEL_TABS.length - 1) % PANEL_TABS.length
+      : e.key === "Home" ? 0
+      : e.key === "End" ? PANEL_TABS.length - 1
+      : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    onTab(PANEL_TABS[next][0]);
+    document.getElementById(`step-tab-${PANEL_TABS[next][0]}`)?.focus();
+  };
 
   return (
     <aside className="flex h-full min-h-0 w-[400px] shrink-0 flex-col border-l border-line bg-s1" aria-label={`Step ${step.name}`}>
@@ -79,149 +116,187 @@ export function FlowStepPanel({ step, index, onSelectKey, flowName, onOpenFlow, 
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
-        {step.childFlowId && (
-          <Section title="Runs child flow">
-            {childName ? (
-              <button className="badge badge-brand gap-1 hover:underline" onClick={() => onOpenFlow(step.childFlowId!)}>
-                {childName}
-                <ArrowUpRight size={11} />
-              </button>
-            ) : (
-              <span className="font-mono text-xs text-subtle">{step.childFlowId} (not in this environment)</span>
-            )}
-          </Section>
-        )}
+      <div className="flex h-9 shrink-0 items-end gap-1 border-b border-line px-3" role="tablist" aria-label="Step details" onKeyDown={onTabKey}>
+        {PANEL_TABS.map(([key, label]) => (
+          <button
+            key={key}
+            id={`step-tab-${key}`}
+            role="tab"
+            aria-selected={tab === key}
+            aria-controls="step-tabpanel"
+            tabIndex={tab === key ? 0 : -1}
+            className="tab h-9"
+            onClick={() => onTab(key)}
+          >
+            {label}
+            {key === "data" && dataCount > 0 && <span className="seg-count text-[11px]">{dataCount}</span>}
+          </button>
+        ))}
+      </div>
 
-        {step.kind !== "trigger" && (
-          <Section title="Runs after">
-            {Object.keys(step.after).length === 0 ? (
-              <span className="text-xs text-subtle">Nothing — runs first in its block</span>
-            ) : (
-              <div className="space-y-1.5">
-                {Object.entries(step.after).map(([dep, statuses]) => (
-                  <div key={dep} className="flex flex-wrap items-center gap-1.5">
-                    <StepLink name={dep} ctx={ctx} />
-                    {statuses.map((s) => (
-                      <span key={s} className={`badge ${STATUS_TONE[s] ?? "badge-neutral"}`}>
-                        {s.toLowerCase()}
-                      </span>
-                    ))}
+      <div id="step-tabpanel" role="tabpanel" aria-labelledby={`step-tab-${tab}`} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+        {tab === "parameters" && (
+          <>
+            {step.childFlowId && (
+              <Section title="Runs child flow">
+                {childName ? (
+                  <button className="badge badge-brand gap-1 hover:underline" onClick={() => onOpenFlow(step.childFlowId!)}>
+                    {childName}
+                    <ArrowUpRight size={11} />
+                  </button>
+                ) : (
+                  <span className="font-mono text-xs text-subtle">{step.childFlowId} (not in this environment)</span>
+                )}
+              </Section>
+            )}
+
+            {step.actionType === "If" && raw.expression !== undefined && (
+              <Section title="Condition">
+                <Box>
+                  <Condition expr={raw.expression} ctx={ctx} />
+                </Box>
+              </Section>
+            )}
+            {step.actionType === "Until" && raw.expression !== undefined && (
+              <Section title="Until">
+                <Box>
+                  <Condition expr={raw.expression} ctx={ctx} />
+                </Box>
+              </Section>
+            )}
+            {step.actionType === "Switch" && (
+              <Section title="Switch on">
+                <Field value={raw.expression} ctx={ctx} />
+                {isObject(raw.cases) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {Object.values(raw.cases).map((c, i) =>
+                      isObject(c) ? (
+                        <span key={i} className="badge badge-neutral font-mono">
+                          {JSON.stringify(c.case)}
+                        </span>
+                      ) : null
+                    )}
                   </div>
-                ))}
-              </div>
+                )}
+              </Section>
             )}
-          </Section>
-        )}
+            {step.actionType === "Foreach" && (
+              <Section title="For each item in">
+                <Field value={raw.foreach} ctx={ctx} />
+              </Section>
+            )}
+            {raw.recurrence !== undefined && (
+              <Section title="Recurrence">
+                <Field value={raw.recurrence} ctx={ctx} />
+              </Section>
+            )}
+            {raw.limit !== undefined && (
+              <Section title="Limit">
+                <Field value={raw.limit} ctx={ctx} />
+              </Section>
+            )}
 
-        {variableNames.length > 0 && (
-          <Section title="Variables">
-            <div className="space-y-2.5">
-              {variableNames.map((name) => (
-                <VariableCard
-                  key={name}
-                  info={index.variableInfo.get(name)}
-                  step={step}
-                  roles={{
-                    declares: touched!.declares.includes(name),
-                    writes: touched!.writes.includes(name),
-                    reads: touched!.reads.includes(name),
-                  }}
+            {host && (
+              <Section title="Operation">
+                <Field
+                  value={Object.fromEntries(
+                    Object.entries(host).filter(([, v]) => typeof v === "string" && v !== "")
+                  )}
                   ctx={ctx}
                 />
-              ))}
-            </div>
-          </Section>
-        )}
-
-        {step.actionType === "If" && raw.expression !== undefined && (
-          <Section title="Condition">
-            <Condition expr={raw.expression} ctx={ctx} />
-          </Section>
-        )}
-        {step.actionType === "Until" && raw.expression !== undefined && (
-          <Section title="Until">
-            <Condition expr={raw.expression} ctx={ctx} />
-          </Section>
-        )}
-        {step.actionType === "Switch" && (
-          <Section title="Switch on">
-            <Value value={raw.expression} ctx={ctx} />
-            {isObject(raw.cases) && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {Object.values(raw.cases).map((c, i) =>
-                  isObject(c) ? (
-                    <span key={i} className="badge badge-neutral font-mono">
-                      {JSON.stringify(c.case)}
-                    </span>
-                  ) : null
-                )}
-              </div>
+              </Section>
             )}
-          </Section>
-        )}
-        {step.actionType === "Foreach" && (
-          <Section title="For each item in">
-            <Value value={raw.foreach} ctx={ctx} />
-          </Section>
-        )}
-        {raw.recurrence !== undefined && (
-          <Section title="Recurrence">
-            <Value value={raw.recurrence} ctx={ctx} />
-          </Section>
-        )}
-        {raw.limit !== undefined && (
-          <Section title="Limit">
-            <Value value={raw.limit} ctx={ctx} />
-          </Section>
+            {parameters !== undefined && (
+              <Section title="Parameters">
+                <Field value={parameters} ctx={ctx} />
+              </Section>
+            )}
+            {hasOtherInputs && (
+              <Section title={step.childFlowId ? "Inputs to the child flow" : "Inputs"}>
+                <Field value={step.childFlowId && isObject(otherInputs) ? otherInputs.body ?? otherInputs : otherInputs} ctx={ctx} />
+              </Section>
+            )}
+
+            {!hasParameters && <Empty>This step takes no parameters.</Empty>}
+          </>
         )}
 
-        {host && (
-          <Section title="Operation">
-            <Value
-              value={Object.fromEntries(
-                Object.entries(host).filter(([, v]) => typeof v === "string" && v !== "")
-              )}
-              ctx={ctx}
-            />
-          </Section>
-        )}
-        {parameters !== undefined && (
-          <Section title="Parameters">
-            <Value value={parameters} ctx={ctx} />
-          </Section>
-        )}
-        {otherInputs !== undefined && !(isObject(otherInputs) && Object.keys(otherInputs).length === 0) && (
-          <Section title={step.childFlowId ? "Inputs to the child flow" : "Inputs"}>
-            <Value value={step.childFlowId && isObject(otherInputs) ? otherInputs.body ?? otherInputs : otherInputs} ctx={ctx} />
-          </Section>
+        {tab === "settings" && (
+          <>
+            {step.kind !== "trigger" && (
+              <Section title="Runs after">
+                {Object.keys(step.after).length === 0 ? (
+                  <span className="text-xs text-subtle">Nothing — runs first in its block</span>
+                ) : (
+                  <div className="space-y-1.5">
+                    {Object.entries(step.after).map(([dep, statuses]) => (
+                      <div key={dep} className="flex flex-wrap items-center gap-1.5">
+                        <StepLink name={dep} ctx={ctx} />
+                        {statuses.map((s) => (
+                          <span key={s} className={`badge ${STATUS_TONE[s] ?? "badge-neutral"}`}>
+                            {s.toLowerCase()}
+                          </span>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Section>
+            )}
+
+            {Object.keys(settings).length > 0 ? (
+              <Section title="Settings">
+                <Field value={settings} ctx={ctx} />
+              </Section>
+            ) : (
+              <Empty>No other settings — this step uses the defaults.</Empty>
+            )}
+          </>
         )}
 
-        {Object.keys(settings).length > 0 && (
-          <Section title="Settings">
-            <Value value={settings} ctx={ctx} />
-          </Section>
-        )}
+        {tab === "data" && (
+          <>
+            {variableNames.length > 0 && (
+              <Section title="Variables">
+                <div className="space-y-2.5">
+                  {variableNames.map((name) => (
+                    <VariableCard
+                      key={name}
+                      info={index.variableInfo.get(name)}
+                      step={step}
+                      roles={{
+                        declares: touched!.declares.includes(name),
+                        writes: touched!.writes.includes(name),
+                        reads: touched!.reads.includes(name),
+                      }}
+                      ctx={ctx}
+                    />
+                  ))}
+                </div>
+              </Section>
+            )}
 
-        {(uses.length > 0 || usedBy.length > 0) && (
-          <Section title="Data">
             {uses.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="w-16 shrink-0 text-xs text-subtle">Reads</span>
-                {uses.map((k) => (
-                  <StepLink key={k} name={k} ctx={ctx} />
-                ))}
-              </div>
+              <Section title="Reads">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {uses.map((k) => (
+                    <StepLink key={k} name={k} ctx={ctx} />
+                  ))}
+                </div>
+              </Section>
             )}
             {usedBy.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <span className="w-16 shrink-0 text-xs text-subtle">Read by</span>
-                {usedBy.map((k) => (
-                  <StepLink key={k} name={k} ctx={ctx} />
-                ))}
-              </div>
+              <Section title="Read by">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {usedBy.map((k) => (
+                    <StepLink key={k} name={k} ctx={ctx} />
+                  ))}
+                </div>
+              </Section>
             )}
-          </Section>
+
+            {dataCount === 0 && <Empty>No variables here, and no step's output is read here or reads this one.</Empty>}
+          </>
         )}
       </div>
     </aside>
@@ -415,6 +490,7 @@ function Condition({ expr, ctx }: { expr: unknown; ctx: Ctx }) {
 function Value({ value, ctx, depth = 0 }: { value: unknown; ctx: Ctx; depth?: number }) {
   if (value === undefined) return <span className="text-xs text-subtle">—</span>;
   if (value === null) return <span className="font-mono text-[12px] text-subtle">null</span>;
+  if (value === "") return <span className="text-xs text-subtle italic">empty</span>;
   if (typeof value === "string") return <Text value={value} ctx={ctx} />;
   if (typeof value === "number") return <span className="font-mono text-[12px] text-num">{value}</span>;
   if (typeof value === "boolean") return <span className="font-mono text-[12px] text-bool">{String(value)}</span>;
@@ -424,23 +500,36 @@ function Value({ value, ctx, depth = 0 }: { value: unknown; ctx: Ctx; depth?: nu
   if (entries.length === 0) {
     return <span className="font-mono text-[12px] text-subtle">{Array.isArray(value) ? "[ ]" : "{ }"}</span>;
   }
+  // Each key is a label with its value in a box under it, like a read-only form field;
+  // nested objects indent their own fields.
   return (
-    <div className={`space-y-1.5 ${depth > 0 ? "border-l border-line pl-2.5" : ""}`}>
+    <div className={`space-y-3 ${depth > 0 ? "border-l border-line pl-3" : ""}`}>
       {entries.map(([k, v]) => {
         const nested = typeof v === "object" && v !== null && Object.keys(v).length > 0;
         return (
-          <div key={k} className={nested ? "" : "grid grid-cols-[minmax(72px,max-content)_1fr] gap-x-3"}>
-            <div className="truncate pt-px font-mono text-[11.5px] text-subtle" title={k}>
-              {Array.isArray(value) ? `#${k}` : k}
-            </div>
-            <div className={`min-w-0 ${nested ? "mt-1" : ""}`}>
-              <Value value={v} ctx={ctx} depth={depth + 1} />
-            </div>
+          <div key={k}>
+            <div className="mb-1 font-mono text-[11.5px] text-subtle [overflow-wrap:anywhere]">{Array.isArray(value) ? `#${k}` : k}</div>
+            {nested ? <Value value={v} ctx={ctx} depth={depth + 1} /> : <Box><Value value={v} ctx={ctx} depth={depth + 1} /></Box>}
           </div>
         );
       })}
     </div>
   );
+}
+
+/** A section's value: objects become labelled fields, a single value gets one box. */
+function Field({ value, ctx }: { value: unknown; ctx: Ctx }) {
+  const nested = typeof value === "object" && value !== null && Object.keys(value).length > 0;
+  return nested ? <Value value={value} ctx={ctx} /> : <Box><Value value={value} ctx={ctx} /></Box>;
+}
+
+/** The read-only "input" a value sits in. */
+function Box({ children }: { children: ReactNode }) {
+  return <div className="min-h-[32px] rounded-md border border-line bg-s2 px-2.5 py-1.5 [overflow-wrap:anywhere]">{children}</div>;
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return <div className="py-6 text-center text-xs text-subtle">{children}</div>;
 }
 
 const LONG = 360;
@@ -456,7 +545,7 @@ function Text({ value, ctx }: { value: string; ctx: Ctx }) {
         p.kind === "text" ? (
           <span key={i}>{p.text}</span>
         ) : (
-          <code key={i} className="rounded bg-brand/10 px-1 py-px font-mono text-[11.5px]">
+          <code key={i} className="box-decoration-clone rounded bg-brand/10 px-1 py-px font-mono text-[11.5px]">
             {tokenizeExpression(p.text).map((t, j) => {
               if (t.kind === "fn") return <span key={j} className="text-brand">{t.text}</span>;
               if (t.kind === "string") return <span key={j} className="text-success">{t.text}</span>;
