@@ -1,3 +1,6 @@
+### What's new in 0.3.1
+- **Updates download much faster.** The app used to pass every few kilobytes of the installer to the window one by one, so a download of about 15 MB took far longer than it should. Updating *to* 0.3.1 still uses the old way; the updates after it will be fast.
+
 ### What's new in 0.3.0
 - **FetchXML Builder** — a new tool in the sidebar (FetchXML → Builder):
   - Write FetchXML with autocomplete for tables, columns, operators and choice values — or build it with a **tree + properties panel** (column pickers, joins from the table's relationships, conditions with operators that fit the column).
