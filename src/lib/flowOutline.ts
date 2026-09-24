@@ -33,6 +33,27 @@ export interface OutlineNode {
   /** The step's JSON object (null for branches). */
   raw: Record<string, unknown> | null;
   children: OutlineNode[];
+  /** A "Run a Child Flow" step shown with the child flow inside it (Designer). */
+  inline?: InlineState;
+  /** A step of a child flow shown inline: id of the step that runs that flow. */
+  owner?: string;
+  /** A step of a child flow shown inline: that flow and the step's own id there. */
+  origin?: { flowId: string; id: string };
+}
+
+export type InlineStatus = "loading" | "ready" | "error" | "missing" | "cycle";
+
+export interface InlineState {
+  flowId: string;
+  status: InlineStatus;
+  message?: string;
+}
+
+/** A child flow as the Designer can show it inside its parent. */
+export interface ChildFlow {
+  status: Exclude<InlineStatus, "cycle">;
+  outline?: OutlineNode[];
+  message?: string;
 }
 
 /**
@@ -335,4 +356,60 @@ export function parentIds(nodes: OutlineNode[], out: string[] = []): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Joins the step ids of a child flow shown inline: `<run child step>␁␂␁<id in
+ * the child>`. U+0002 can't be in a step name, so the id still splits into its
+ * ancestors (containers, the step that runs the child) on U+0001.
+ */
+export const INLINE = `${SEP}${SEP}`;
+
+function reId(nodes: OutlineNode[], owner: string, flowId: string): OutlineNode[] {
+  return nodes.map((n) => ({
+    ...n,
+    id: owner + INLINE + n.id,
+    owner,
+    origin: { flowId, id: n.origin?.id ?? n.id },
+    children: reId(n.children, owner, flowId),
+  }));
+}
+
+/**
+ * The outline with the child flows of the `open` "Run a Child Flow" steps
+ * inside them (as their children), and each shown child flow's own steps by
+ * the id of the step that runs it — for indexing that flow on its own.
+ * `self` is the flow being shown: a child that runs it again isn't expanded.
+ */
+export function withChildFlows(
+  outline: OutlineNode[],
+  open: Set<string>,
+  child: (flowId: string) => ChildFlow,
+  self: string
+): { outline: OutlineNode[]; scopes: Map<string, OutlineNode[]> } {
+  const scopes = new Map<string, OutlineNode[]>();
+  const visit = (nodes: OutlineNode[], above: string[]): OutlineNode[] =>
+    nodes.map((n) => {
+      if (n.childFlowId && open.has(n.id)) {
+        const flowId = n.childFlowId;
+        if (above.includes(flowId)) return { ...n, inline: { flowId, status: "cycle" }, children: [] };
+        const c = child(flowId);
+        if (c.status !== "ready" || !c.outline) {
+          return { ...n, inline: { flowId, status: c.status, message: c.message }, children: [] };
+        }
+        const own = reId(c.outline, n.id, flowId);
+        scopes.set(n.id, own);
+        return { ...n, inline: { flowId, status: "ready" }, children: visit(own, [...above, flowId]) };
+      }
+      if (!n.children.length) return n;
+      const children = visit(n.children, above);
+      return children.every((c, i) => c === n.children[i]) ? n : { ...n, children };
+    });
+  return { outline: visit(outline, [self.toLowerCase()]), scopes };
+}
+
+/** "Run a Child Flow" steps a step id sits inside (to open them), outermost first. */
+export function inlineOwners(id: string): string[] {
+  const parts = id.split(INLINE);
+  return parts.slice(1).map((_, i) => parts.slice(0, i + 1).join(INLINE));
 }

@@ -426,6 +426,21 @@ async fn list_columns(
 }
 
 #[tauri::command]
+async fn table_choices(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+) -> AppResult<metadata::TableChoices> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || metadata::table_choices(&host, &token, &table))
+        .await
+        .map_err(AppError::msg)?
+}
+
+#[tauri::command]
 async fn list_flows(
     state: State<'_, AppState>,
     connection_id: String,
@@ -578,6 +593,7 @@ pub fn run() {
             result_rows,
             list_tables,
             list_columns,
+            table_choices,
             list_flows,
             flow_definition,
             flow_calls,

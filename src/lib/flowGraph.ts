@@ -30,7 +30,7 @@ export interface GraphNode {
   depth: number;
   /** The step (cards, frames); null for pills and empty placeholders. */
   step: OutlineNode | null;
-  /** Pill text ("True", "Case \"a\"", "Default"). */
+  /** Pill text ("True", "Case \"a\"", "Default"); an empty placeholder's text. */
   label?: string;
   /** A container shown as a card: how many steps it hides. */
   hidden?: number;
@@ -94,8 +94,9 @@ class Layout {
 
   /** One step: a card, or a frame around its steps. */
   step(step: OutlineNode, depth: number): Block {
-    const isContainer = CONTAINERS.has(step.actionType);
-    if (!isContainer || this.collapsed.has(step.id)) {
+    // A child flow shown inline is a frame too, until it's closed again.
+    const isContainer = CONTAINERS.has(step.actionType) || !!step.inline;
+    if (!isContainer || (!step.inline && this.collapsed.has(step.id))) {
       const node: GraphNode = {
         id: step.id,
         kind: "card",
@@ -113,7 +114,24 @@ class Layout {
     // Condition / Switch: one column per branch; others: one sequence.
     const columns: Block[] = [];
     const edges: GraphEdge[] = [];
-    if (step.actionType === "If" || step.actionType === "Switch") {
+    if (step.inline) {
+      const body = this.flow(step.children, depth + 1);
+      if (body) {
+        columns.push(body.block);
+        for (const r of body.roots) edges.push(edge(step.id, r, "inner"));
+      } else {
+        const text: Record<string, string> = {
+          loading: "Loading the child flow…",
+          error: "Couldn't load the child flow",
+          missing: "Flow not in this environment",
+          cycle: "Runs a flow above it again",
+          ready: "No steps",
+        };
+        const empty = this.empty(`${step.id}empty`, depth + 1, text[step.inline.status]);
+        columns.push(empty);
+        edges.push(edge(step.id, empty.top, "inner"));
+      }
+    } else if (step.actionType === "If" || step.actionType === "Switch") {
       const branches =
         step.actionType === "If"
           ? [
@@ -177,9 +195,46 @@ class Layout {
     };
   }
 
-  private empty(id: string, depth: number): Block {
-    const node: GraphNode = { id, kind: "empty", x: 0, y: 0, w: EMPTY_W, h: EMPTY_H, depth, step: null };
-    return { w: EMPTY_W, h: EMPTY_H, nodes: [node], edges: [], top: id, bottom: id };
+  private empty(id: string, depth: number, label?: string): Block {
+    const w = label ? Math.max(EMPTY_W, label.length * 6.5 + 24) : EMPTY_W;
+    const node: GraphNode = { id, kind: "empty", x: 0, y: 0, w, h: EMPTY_H, depth, step: null, label };
+    return { w, h: EMPTY_H, nodes: [node], edges: [], top: id, bottom: id };
+  }
+
+  /** A whole flow (or a child flow shown inline): its triggers in a row, the actions below. */
+  flow(outline: OutlineNode[], depth: number): { block: Block; roots: string[] } | null {
+    const triggers = outline.filter((n) => n.kind === "trigger");
+    const actions = outline.filter((n) => n.kind !== "trigger");
+    const seq = this.sequence(actions, depth);
+    if (!triggers.length) return seq;
+
+    const nodes: GraphNode[] = [];
+    const edges: GraphEdge[] = [];
+    const triggerRowW = triggers.length * CARD_W + (triggers.length - 1) * GAP_X;
+    const width = Math.max(triggerRowW, seq?.block.w ?? 0);
+    triggers.forEach((t, i) => {
+      nodes.push({
+        id: t.id,
+        kind: "card",
+        x: (width - triggerRowW) / 2 + i * (CARD_W + GAP_X),
+        y: 0,
+        w: CARD_W,
+        h: CARD_H,
+        depth,
+        step: t,
+      });
+    });
+    let height = CARD_H;
+    if (seq) {
+      const top = CARD_H + GAP_Y;
+      shift(seq.block.nodes, (width - seq.block.w) / 2, top);
+      nodes.push(...seq.block.nodes);
+      edges.push(...seq.block.edges);
+      for (const t of triggers) for (const r of seq.roots) edges.push(edge(t.id, r, "out"));
+      height = top + seq.block.h;
+    }
+    const roots = triggers.map((t) => t.id);
+    return { block: { w: width, h: height, nodes, edges, top: roots[0], bottom: roots[0] }, roots };
   }
 
   /**
@@ -253,38 +308,9 @@ class Layout {
 
 /** Triggers on top, then the actions; `collapsed` holds container ids drawn as cards. */
 export function layoutFlow(outline: OutlineNode[], collapsed: Set<string>): FlowGraph {
-  const layout = new Layout(collapsed);
-  const triggers = outline.filter((n) => n.kind === "trigger");
-  const actions = outline.filter((n) => n.kind !== "trigger");
-
-  const nodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
-  const triggerRowW = triggers.length * CARD_W + Math.max(0, triggers.length - 1) * GAP_X;
-  const seq = layout.sequence(actions, 0);
-  const width = Math.max(triggerRowW, seq?.block.w ?? 0);
-
-  triggers.forEach((t, i) => {
-    nodes.push({
-      id: t.id,
-      kind: "card",
-      x: (width - triggerRowW) / 2 + i * (CARD_W + GAP_X),
-      y: 0,
-      w: CARD_W,
-      h: CARD_H,
-      depth: 0,
-      step: t,
-    });
-  });
-  let height = triggers.length ? CARD_H : 0;
-  if (seq) {
-    const top = triggers.length ? CARD_H + GAP_Y : 0;
-    shift(seq.block.nodes, (width - seq.block.w) / 2, top);
-    nodes.push(...seq.block.nodes);
-    edges.push(...seq.block.edges);
-    for (const t of triggers) for (const r of seq.roots) edges.push(edge(t.id, r, "out"));
-    height = top + seq.block.h;
-  }
-  return { nodes, edges, width, height };
+  const body = new Layout(collapsed).flow(outline, 0);
+  if (!body) return { nodes: [], edges: [], width: 0, height: 0 };
+  return { nodes: body.block.nodes, edges: body.block.edges, width: body.block.w, height: body.block.h };
 }
 
 /** Ids of every container, for "collapse all". */

@@ -287,3 +287,91 @@ pub fn many_to_one(host: &str, token: &str, table: &str) -> AppResult<Vec<(Strin
         })
         .unwrap_or_default())
 }
+
+// ---- choice labels for the Flows tool (a step compares `statuscode` to 100000001) ----
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceOption {
+    pub value: i64,
+    pub label: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TableChoices {
+    /// The table's logical name (it may have been asked for by entity set name).
+    pub table: String,
+    /// Column logical name → its options (choice, multi-select choice, status, status reason).
+    pub columns: HashMap<String, Vec<ChoiceOption>>,
+}
+
+/// Choice columns of a table and their options. `table` is a logical name or
+/// an entity set name — flows name tables both ways (`account` in a trigger,
+/// `accounts` in "List rows").
+pub fn table_choices(host: &str, token: &str, table: &str) -> AppResult<TableChoices> {
+    let name = table.to_ascii_lowercase();
+    if !is_valid_logical_name(&name) {
+        return Err(AppError::msg(format!("Invalid table name: {}", table)));
+    }
+    let url = format!(
+        "https://{}/api/data/v9.2/EntityDefinitions?$select=LogicalName&$filter=LogicalName eq '{}' or EntitySetName eq '{}'",
+        host, name, table
+    );
+    let body = get_json(&url, token, None)?;
+    let logical = body
+        .get("value")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|e| e.get("LogicalName"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| AppError::msg(format!("Table `{}` not found.", table)))?;
+
+    const KINDS: &[&str] = &[
+        "PicklistAttributeMetadata",
+        "MultiSelectPicklistAttributeMetadata",
+        "StatusAttributeMetadata",
+        "StateAttributeMetadata",
+    ];
+    let results: Vec<AppResult<Value>> = std::thread::scope(|s| {
+        let handles: Vec<_> = KINDS
+            .iter()
+            .map(|kind| {
+                let url = format!(
+                    "https://{}/api/data/v9.2/EntityDefinitions(LogicalName='{}')/Attributes/Microsoft.Dynamics.CRM.{}?$select=LogicalName&$expand=OptionSet($select=Options)",
+                    host, logical, kind
+                );
+                s.spawn(move || get_json(&url, token, None))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or_else(|_| Err(AppError::msg("metadata request panicked"))))
+            .collect()
+    });
+
+    let mut columns = HashMap::new();
+    for body in results {
+        for a in body?.get("value").and_then(|v| v.as_array()).into_iter().flatten() {
+            let Some(name) = a.get("LogicalName").and_then(|s| s.as_str()) else { continue };
+            let options: Vec<ChoiceOption> = a
+                .get("OptionSet")
+                .and_then(|o| o.get("Options"))
+                .and_then(|o| o.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|o| {
+                            Some(ChoiceOption {
+                                value: o.get("Value")?.as_i64()?,
+                                label: o.get("Label").map(label).unwrap_or_default(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            columns.insert(name.to_string(), options);
+        }
+    }
+    Ok(TableChoices { table: logical, columns })
+}

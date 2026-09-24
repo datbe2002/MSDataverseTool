@@ -19,8 +19,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { CARD_H, CARD_W, containerIds, layoutFlow, type GraphNode } from "../lib/flowGraph";
-import type { OutlineNode } from "../lib/flowOutline";
-import { indexFlow } from "../lib/flowRefs";
+import { inlineOwners, withChildFlows, type ChildFlow, type OutlineNode } from "../lib/flowOutline";
+import { indexFlow, type FlowIndex } from "../lib/flowRefs";
 import { queryTerms, searchSteps } from "../lib/flowSearch";
 import { StepSearchBox } from "./StepSearch";
 import { StepIcon } from "./StepIcon";
@@ -28,11 +28,18 @@ import { FlowStepPanel, type PanelTab } from "./FlowStepPanel";
 import { ArrowUpRight, ChevronDown } from "./Icon";
 
 interface Props {
+  /** Connection the flow is in (choice labels are read from its tables). */
+  connId: string;
+  /** Id of the flow shown (a child flow running it again isn't expanded). */
+  flowId: string;
   outline: OutlineNode[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   flowName: (flowId: string) => string | null;
-  onOpenFlow: (flowId: string) => void;
+  /** Opens another flow; `from` is the step it's opened from (Back returns to it). */
+  onOpenFlow: (flowId: string, from?: string) => void;
+  /** A child flow's definition, to show it inside the step that runs it. */
+  childFlow: (flowId: string) => ChildFlow;
   onShowInJson: (step: OutlineNode) => void;
   theme: "dark" | "light";
 }
@@ -44,7 +51,7 @@ interface NodeData extends Record<string, unknown> {
   match: boolean;
   childName: string | null;
   onToggle: (id: string) => void;
-  onOpenFlow: (id: string) => void;
+  onOpenFlow: (id: string, from?: string) => void;
 }
 
 type FlowNode = Node<NodeData>;
@@ -87,7 +94,7 @@ function CardBody({ data, children }: { data: NodeData; children?: React.ReactNo
           aria-label={`Open child flow ${data.childName}`}
           onClick={(e) => {
             e.stopPropagation();
-            data.onOpenFlow(step.childFlowId!);
+            data.onOpenFlow(step.childFlowId!, step.id);
           }}
         >
           <ArrowUpRight size={13} />
@@ -104,6 +111,19 @@ const CardNode = memo(function CardNode({ data }: NodeProps<FlowNode>) {
     <>
       <Handle type="target" position={Position.Top} id="in" isConnectable={false} style={hidden} />
       <CardBody data={data}>
+        {g.step!.childFlowId && data.childName && (
+          <button
+            className="btn btn-ghost btn-icon btn-sm nodrag shrink-0"
+            title="Show the child flow here"
+            aria-label="Show the child flow here"
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onToggle(g.id);
+            }}
+          >
+            <ChevronDown size={14} />
+          </button>
+        )}
         {g.hidden !== undefined && (
           <button
             className="btn btn-ghost btn-icon btn-sm nodrag shrink-0"
@@ -125,7 +145,11 @@ const CardNode = memo(function CardNode({ data }: NodeProps<FlowNode>) {
 
 const FrameNode = memo(function FrameNode({ data }: NodeProps<FlowNode>) {
   const g = data.g;
-  const tone = g.step!.actionType === "If" || g.step!.actionType === "Switch" ? "is-branch" : "";
+  const tone = g.step!.inline
+    ? "is-child"
+    : g.step!.actionType === "If" || g.step!.actionType === "Switch"
+    ? "is-branch"
+    : "";
   return (
     <div className="relative" style={{ width: g.w, height: g.h }}>
       <Handle type="target" position={Position.Top} id="in" isConnectable={false} style={hidden} />
@@ -134,8 +158,8 @@ const FrameNode = memo(function FrameNode({ data }: NodeProps<FlowNode>) {
         <CardBody data={data}>
           <button
             className="btn btn-ghost btn-icon btn-sm nodrag shrink-0"
-            title="Collapse"
-            aria-label="Collapse"
+            title={g.step!.inline ? "Hide the child flow" : "Collapse"}
+            aria-label={g.step!.inline ? "Hide the child flow" : "Collapse"}
             onClick={(e) => {
               e.stopPropagation();
               data.onToggle(g.id);
@@ -170,7 +194,7 @@ const EmptyNode = memo(function EmptyNode({ data }: NodeProps<FlowNode>) {
     <>
       <Handle type="target" position={Position.Top} id="in" isConnectable={false} style={hidden} />
       <div className="flow-empty" style={{ width: data.g.w, height: data.g.h }}>
-        No steps
+        {data.g.label ?? "No steps"}
       </div>
     </>
   );
@@ -186,12 +210,23 @@ export function FlowDesigner(props: Props) {
   );
 }
 
-function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowInJson, theme }: Props) {
+function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName, onOpenFlow, childFlow, onShowInJson, theme }: Props) {
   const rf = useReactFlow();
   const boxRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // "Run a Child Flow" steps showing their child flow inside them.
+  const [inlined, setInlined] = useState<Set<string>>(() => new Set());
+  const { outline, scopes } = useMemo(
+    () => withChildFlows(own, inlined, childFlow, flowId),
+    [own, inlined, childFlow, flowId]
+  );
   const graph = useMemo(() => layoutFlow(outline, collapsed), [outline, collapsed]);
-  const index = useMemo(() => indexFlow(outline), [outline]);
+  // References resolve within one flow: this one, or the child flow a step belongs to.
+  const indexes = useMemo(() => {
+    const map = new Map<string, FlowIndex>([["", indexFlow(own)]]);
+    for (const [owner, steps] of scopes) map.set(owner, indexFlow(steps));
+    return map;
+  }, [own, scopes]);
   const stepsById = useMemo(() => {
     const map = new Map<string, OutlineNode>();
     const walk = (nodes: OutlineNode[]) => nodes.forEach((n) => (map.set(n.id, n), walk(n.children)));
@@ -199,6 +234,7 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
     return map;
   }, [outline]);
   const selected = selectedId ? stepsById.get(selectedId) ?? null : null;
+  const index = indexes.get(selected?.owner ?? "") ?? indexes.get("")!;
   const [panelTab, setPanelTab] = useState<PanelTab>("parameters");
 
   // Search: matching cards are marked, the rest fade; picking one selects it
@@ -236,14 +272,18 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
   }, []);
 
   const toggle = useCallback(
-    (id: string) =>
-      setCollapsed((prev) => {
+    (id: string) => {
+      const flip = (prev: Set<string>) => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id);
         else next.add(id);
         return next;
-      }),
-    []
+      };
+      // The card of a "Run a Child Flow" step opens / closes its child flow.
+      if (stepsById.get(id)?.childFlowId) setInlined(flip);
+      else setCollapsed(flip);
+    },
+    [stepsById]
   );
 
   const nodes: FlowNode[] = useMemo(
@@ -304,20 +344,26 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
     [graph]
   );
 
-  // Picking a step inside a collapsed container opens that container.
+  // Picking a step inside a collapsed container opens that container (and
+  // the child flows it's in, e.g. coming Back to a step of one).
   useEffect(() => {
     if (!selectedId) return;
     setCollapsed((prev) => {
       const next = new Set([...prev].filter((id) => !selectedId.startsWith(id + SEP)));
       return next.size === prev.size ? prev : next;
     });
+    const owners = inlineOwners(selectedId);
+    if (owners.length) setInlined((prev) => (owners.every((o) => prev.has(o)) ? prev : new Set([...prev, ...owners])));
   }, [selectedId]);
 
-  // Bring the picked step into view (after its container opened).
+  // Set by onInit: before it, React Flow's viewport isn't the one shown yet.
+  const [ready, setReady] = useState(false);
+
+  // Bring the picked step into view (after its container or child flow opened).
   useEffect(() => {
     const g = selectedId ? graph.nodes.find((n) => n.id === selectedId) : null;
     const box = boxRef.current;
-    if (!g || !box) return;
+    if (!ready || !g || !box) return;
     const { x, y, zoom } = rf.getViewport();
     const cardW = g.kind === "frame" ? CARD_W : g.w;
     const left = g.x + (g.w - cardW) / 2;
@@ -327,7 +373,7 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
     if (!inView) {
       void rf.setCenter(left + cardW / 2, g.y + CARD_H / 2, { zoom: Math.max(zoom, 0.8), duration: 300 });
     }
-  }, [selectedId, graph, rf]);
+  }, [selectedId, graph, rf, ready]);
 
   // Open at the top of the flow, as wide as fits (a long flow would shrink to
   // nothing with fitView).
@@ -335,9 +381,11 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
   const onInit = useCallback(() => {
     const box = boxRef.current;
     if (!box) return;
-    const picked = selectedId ? graph.nodes.find((n) => n.id === selectedId) : null;
-    if (picked) {
-      void rf.setCenter(picked.x + picked.w / 2, picked.y + CARD_H / 2, { zoom: 0.9 });
+    setReady(true);
+    // A step inside a child flow that's still opening: centred once it's drawn.
+    if (selectedId) {
+      const picked = graph.nodes.find((n) => n.id === selectedId);
+      if (picked) void rf.setCenter(picked.x + picked.w / 2, picked.y + CARD_H / 2, { zoom: 0.9 });
       return;
     }
     // Readable first: never below 60%, even if the widest part doesn't fit.
@@ -401,13 +449,20 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
               current={current}
               onPick={(i) => onSelect(matches[i].step.id)}
             />
-            <button className="btn btn-secondary btn-sm" onClick={() => void rf.fitView({ padding: 0.08, duration: 300 })} title="Show the whole flow">
+            <button className="btn btn-secondary btn-sm !h-8 !rounded-[7px]" onClick={() => void rf.fitView({ padding: 0.08, duration: 300 })} title="Show the whole flow">
               Fit
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setCollapsed(new Set())} title="Open every Scope, loop, Condition and Switch">
+            <button className="btn btn-secondary btn-sm !h-8 !rounded-[7px]" onClick={() => setCollapsed(new Set())} title="Open every Scope, loop, Condition and Switch">
               Expand all
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setCollapsed(new Set(containerIds(outline)))} title="Show every Scope, loop, Condition and Switch as one card">
+            <button
+              className="btn btn-secondary btn-sm !h-8 !rounded-[7px]"
+              onClick={() => {
+                setCollapsed(new Set(containerIds(own)));
+                setInlined(new Set());
+              }}
+              title="Show every Scope, loop, Condition and Switch as one card, and hide child flows"
+            >
               Collapse all
             </button>
           </Panel>
@@ -428,13 +483,16 @@ function Designer({ outline, selectedId, onSelect, flowName, onOpenFlow, onShowI
       {selected && selected.kind !== "branch" && (
         <FlowStepPanel
           key={selected.id}
+          connId={connId}
           step={selected}
           tab={panelTab}
           onTab={setPanelTab}
           index={index}
           onSelectKey={selectKey}
           flowName={flowName}
-          onOpenFlow={onOpenFlow}
+          onOpenFlow={(id) => onOpenFlow(id, selected.id)}
+          inlined={selected.childFlowId ? inlined.has(selected.id) : undefined}
+          onToggleInline={() => toggle(selected.id)}
           onShowInJson={() => onShowInJson(selected)}
           onClose={() => onSelect(null)}
         />

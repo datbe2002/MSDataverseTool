@@ -10,8 +10,8 @@ interface Props {
   onSelect: (node: OutlineNode) => void;
   /** Name of a flow in this environment, null if there is none with that id. */
   flowName: (flowId: string) => string | null;
-  /** Opens a child flow (its own page, so Back returns here). */
-  onOpenFlow: (flowId: string) => void;
+  /** Opens a child flow from the step `from` (its own page, so Back returns here). */
+  onOpenFlow: (flowId: string, from: string) => void;
 }
 
 /** Colour of the small square in front of each step, by kind of step. */
@@ -92,7 +92,7 @@ export function FlowOutline({ nodes, selectedId, onSelect, flowName, onOpenFlow 
     else if (e.key === "ArrowUp") focusRow(index - 1);
     else if (e.key === "Home") focusRow(0);
     else if (e.key === "End") focusRow(rows.length - 1);
-    else if (e.key === "Enter" && node.childFlowId && flowName(node.childFlowId)) onOpenFlow(node.childFlowId);
+    else if (e.key === "Enter" && node.childFlowId && flowName(node.childFlowId)) onOpenFlow(node.childFlowId, node.id);
     else if (e.key === "ArrowRight" && node.children.length) {
       if (collapsed.has(node.id)) toggle(node.id, true);
       else focusRow(index + 1);
@@ -223,7 +223,7 @@ export function FlowOutline({ nodes, selectedId, onSelect, flowName, onOpenFlow 
                           aria-label={`Open child flow ${childName}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            onOpenFlow(child);
+                            onOpenFlow(child, node.id);
                           }}
                         >
                           <ArrowUpRight size={13} />

@@ -116,6 +116,13 @@ export interface ColumnMeta {
   attributeType: string;
 }
 
+/** Choice columns of a table (`table_choices`), for labels next to option values. */
+export interface TableChoices {
+  /** Logical name (it may have been asked for by entity set name). */
+  table: string;
+  columns: Record<string, { value: number; label: string }[]>;
+}
+
 export type DmlKind = "update" | "delete" | "insert";
 
 export interface DmlPreview {

@@ -173,6 +173,12 @@ export const Flow = (p: IconProps) => (
   </svg>
 );
 
+export const ArrowLeft = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>
+);
+
 export const ArrowUpRight = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M7 17 17 7M8 7h9v9" />

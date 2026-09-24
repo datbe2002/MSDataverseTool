@@ -1,6 +1,6 @@
 // Designer side panel: what one flow step does, readable — its inputs with
 // expressions highlighted, what it runs after, what it reads and who reads it.
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { OutlineNode } from "../lib/flowOutline";
 import {
   conditionLines,
@@ -12,6 +12,19 @@ import {
   type FlowIndex,
   type VariableInfo,
 } from "../lib/flowRefs";
+import {
+  choiceLabel,
+  comparedHint,
+  expressionHints,
+  filterHints,
+  parameterHint,
+  stepTable,
+  tablesFor,
+  useChoices,
+  type ChoiceHint,
+  type ChoiceLabel,
+  type NumberHint,
+} from "../lib/flowChoices";
 import { StepIcon } from "./StepIcon";
 import { ArrowUpRight, Code, X } from "./Icon";
 
@@ -23,6 +36,11 @@ interface Ctx {
   index: FlowIndex;
   /** Select another step by its name in the definition. */
   onSelectKey: (key: string) => void;
+  /** The step shown, for labels of choice values it compares or writes. */
+  step: OutlineNode;
+  /** Its Dataverse table (`item/…` parameters, `$filter`). */
+  table: string | null;
+  choice: ChoiceLabel;
 }
 
 export type PanelTab = "parameters" | "settings" | "data";
@@ -33,13 +51,19 @@ const PANEL_TABS: [PanelTab, string][] = [
   ["data", "Data"],
 ];
 
-interface Props extends Ctx {
+interface Props {
+  connId: string;
+  index: FlowIndex;
+  onSelectKey: (key: string) => void;
   step: OutlineNode;
   /** Kept by the designer so the same tab stays open while moving between steps. */
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
   flowName: (flowId: string) => string | null;
   onOpenFlow: (flowId: string) => void;
+  /** A "Run a Child Flow" step: whether the designer shows the child flow inside it. */
+  inlined?: boolean;
+  onToggleInline?: () => void;
   onShowInJson: () => void;
   onClose: () => void;
 }
@@ -54,8 +78,30 @@ const STATUS_TONE: Record<string, string> = {
 /** Keys shown in their own sections, not again under Settings. */
 const SHOWN = new Set(["type", "kind", "inputs", "runAfter", "expression", "foreach", "limit", "metadata", "actions", "else", "cases", "default", "recurrence"]);
 
-export function FlowStepPanel({ step, tab, onTab, index, onSelectKey, flowName, onOpenFlow, onShowInJson, onClose }: Props) {
-  const ctx: Ctx = { index, onSelectKey };
+export function FlowStepPanel({
+  connId,
+  step,
+  tab,
+  onTab,
+  index,
+  onSelectKey,
+  flowName,
+  onOpenFlow,
+  inlined,
+  onToggleInline,
+  onShowInJson,
+  onClose,
+}: Props) {
+  // Labels next to choice values: load the options of the tables this step touches.
+  const choiceTables = useChoices((s) => s.tables);
+  const loadChoices = useChoices((s) => s.load);
+  const tables = useMemo(() => tablesFor(step, index), [step, index]);
+  useEffect(() => {
+    for (const t of tables) loadChoices(connId, t);
+  }, [connId, tables, loadChoices]);
+  const table = useMemo(() => stepTable(step, index), [step, index]);
+  const choice = useMemo(() => choiceLabel(choiceTables, connId), [choiceTables, connId]);
+  const ctx: Ctx = { index, onSelectKey, step, table, choice };
   const raw = step.raw ?? {};
   const inputs = isObject(raw.inputs) ? raw.inputs : raw.inputs;
   const host = isObject(inputs) && isObject(inputs.host) ? inputs.host : null;
@@ -108,7 +154,12 @@ export function FlowStepPanel({ step, tab, onTab, index, onSelectKey, flowName, 
             {[step.type, step.childFlowId ? childName : step.detail].filter(Boolean).join(" · ")}
           </div>
         </div>
-        <button className="btn btn-ghost btn-icon btn-sm" onClick={onShowInJson} title="Show this step in the JSON" aria-label="Show in JSON">
+        <button
+          className="btn btn-ghost btn-icon btn-sm"
+          onClick={onShowInJson}
+          title={step.origin ? "Open the child flow at this step, in the JSON" : "Show this step in the JSON"}
+          aria-label="Show in JSON"
+        >
           <Code size={14} />
         </button>
         <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} title="Close (Esc)" aria-label="Close">
@@ -140,10 +191,21 @@ export function FlowStepPanel({ step, tab, onTab, index, onSelectKey, flowName, 
             {step.childFlowId && (
               <Section title="Runs child flow">
                 {childName ? (
-                  <button className="badge badge-brand gap-1 hover:underline" onClick={() => onOpenFlow(step.childFlowId!)}>
-                    {childName}
-                    <ArrowUpRight size={11} />
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      className="badge badge-brand gap-1 hover:underline"
+                      onClick={() => onOpenFlow(step.childFlowId!)}
+                      title={`Open “${childName}” (Back returns here)`}
+                    >
+                      {childName}
+                      <ArrowUpRight size={11} />
+                    </button>
+                    {onToggleInline && inlined !== undefined && (
+                      <button className="btn btn-ghost btn-sm" onClick={onToggleInline}>
+                        {inlined ? "Hide its steps" : "Show its steps here"}
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <span className="font-mono text-xs text-subtle">{step.childFlowId} (not in this environment)</span>
                 )}
@@ -173,6 +235,7 @@ export function FlowStepPanel({ step, tab, onTab, index, onSelectKey, flowName, 
                       isObject(c) ? (
                         <span key={i} className="badge badge-neutral font-mono">
                           {JSON.stringify(c.case)}
+                          <ChoiceChip hint={comparedHint(raw.expression, c.case, step, index, choice)} />
                         </span>
                       ) : null
                     )}
@@ -456,11 +519,13 @@ function StepRow({ target, current, ctx, badge }: { target: OutlineNode; current
 function StepLink({ name, ctx }: { name: string; ctx: Ctx }) {
   const known = ctx.index.byKey.has(name);
   return known ? (
-    <button className="badge badge-neutral hover:text-fg hover:underline" onClick={() => ctx.onSelectKey(name)} title={`Go to ${pretty(name)}`}>
-      {pretty(name)}
+    <button className="badge badge-neutral max-w-full hover:text-fg hover:underline" onClick={() => ctx.onSelectKey(name)} title={`Go to ${pretty(name)}`}>
+      <span className="truncate">{pretty(name)}</span>
     </button>
   ) : (
-    <span className="badge badge-neutral opacity-70">{pretty(name)}</span>
+    <span className="badge badge-neutral max-w-full opacity-70" title={pretty(name)}>
+      <span className="truncate">{pretty(name)}</span>
+    </span>
   );
 }
 
@@ -476,8 +541,10 @@ function Condition({ expr, ctx }: { expr: unknown; ctx: Ctx }) {
           ) : (
             <>
               <Text value={l.left ?? ""} ctx={ctx} />
+              <ChoiceChip hint={comparedHint(l.right, l.left, ctx.step, ctx.index, ctx.choice)} />
               {l.op && <span className="text-subtle">{l.op}</span>}
               {l.right !== undefined && <Text value={l.right} ctx={ctx} />}
+              <ChoiceChip hint={comparedHint(l.left, l.right, ctx.step, ctx.index, ctx.choice)} />
             </>
           )}
         </div>
@@ -487,12 +554,28 @@ function Condition({ expr, ctx }: { expr: unknown; ctx: Ctx }) {
 }
 
 /** Any JSON value, as key/value rows; strings get expression highlighting. */
-function Value({ value, ctx, depth = 0 }: { value: unknown; ctx: Ctx; depth?: number }) {
+function Value({ value, ctx, depth = 0, field }: { value: unknown; ctx: Ctx; depth?: number; field?: string }) {
   if (value === undefined) return <span className="text-xs text-subtle">—</span>;
   if (value === null) return <span className="font-mono text-[12px] text-subtle">null</span>;
   if (value === "") return <span className="text-xs text-subtle italic">empty</span>;
-  if (typeof value === "string") return <Text value={value} ctx={ctx} />;
-  if (typeof value === "number") return <span className="font-mono text-[12px] text-num">{value}</span>;
+  // A choice column written by a Dataverse step: `item/statuscode` = 2.
+  const written = field ? parameterHint(field, value, ctx.table, ctx.choice) : null;
+  if (typeof value === "string") {
+    return (
+      <>
+        <Text value={value} ctx={ctx} filter={field === "$filter"} />
+        <ChoiceChip hint={written} />
+      </>
+    );
+  }
+  if (typeof value === "number") {
+    return (
+      <>
+        <span className="font-mono text-[12px] text-num">{value}</span>
+        <ChoiceChip hint={written} />
+      </>
+    );
+  }
   if (typeof value === "boolean") return <span className="font-mono text-[12px] text-bool">{String(value)}</span>;
   const entries: [string, unknown][] = Array.isArray(value)
     ? value.map((v, i) => [String(i + 1), v])
@@ -509,7 +592,7 @@ function Value({ value, ctx, depth = 0 }: { value: unknown; ctx: Ctx; depth?: nu
         return (
           <div key={k}>
             <div className="mb-1 font-mono text-[11.5px] text-subtle [overflow-wrap:anywhere]">{Array.isArray(value) ? `#${k}` : k}</div>
-            {nested ? <Value value={v} ctx={ctx} depth={depth + 1} /> : <Box><Value value={v} ctx={ctx} depth={depth + 1} /></Box>}
+            {nested ? <Value value={v} ctx={ctx} depth={depth + 1} /> : <Box><Value value={v} ctx={ctx} depth={depth + 1} field={Array.isArray(value) ? undefined : k} /></Box>}
           </div>
         );
       })}
@@ -534,37 +617,90 @@ function Empty({ children }: { children: ReactNode }) {
 
 const LONG = 360;
 
+/** A choice value's label, after the number. */
+function ChoiceChip({ hint }: { hint: ChoiceHint | null }) {
+  if (!hint) return null;
+  return (
+    <span className="ml-1 rounded border border-line bg-s1 px-1 font-sans text-[11px] font-medium text-fg" title={hint.title}>
+      {hint.label}
+    </span>
+  );
+}
+
+/** `text` (starting at `at` in its string) with a label after each hinted number. */
+function withHints(text: string, at: number, hints: NumberHint[]): ReactNode {
+  const inside = hints.filter((h) => h.at >= at && h.at + h.length <= at + text.length);
+  if (inside.length === 0) return text;
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const h of inside) {
+    const end = h.at - at + h.length;
+    out.push(text.slice(last, end), <ChoiceChip key={h.at} hint={h} />);
+    last = end;
+  }
+  out.push(text.slice(last));
+  return out;
+}
+
+/** A clickable name inside an expression. A span, not a <button>: buttons lay out as
+ *  inline-block, so a long step name could not wrap and ran out of the box. */
+function InlineLink({ className, onClick, title, children }: { className: string; onClick: () => void; title: string; children: ReactNode }) {
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onClick();
+    }
+  };
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      className={`cursor-pointer rounded-sm underline decoration-dotted underline-offset-2 hover:decoration-solid focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${className}`}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      title={title}
+    >
+      {children}
+    </span>
+  );
+}
+
 /** A string value: literal text plus highlighted `@…` / `@{…}` expressions. */
-function Text({ value, ctx }: { value: string; ctx: Ctx }) {
+function Text({ value, ctx, filter }: { value: string; ctx: Ctx; filter?: boolean }) {
   const [open, setOpen] = useState(false);
   const long = value.length > LONG;
   const parts = splitExpressions(long && !open ? value.slice(0, LONG) : value);
+  // Choice labels: numbers compared to a column in an expression; in `$filter` text, `statecode eq 0`.
+  const hints = parts.map((p) =>
+    p.kind === "expr" ? expressionHints(p.text, ctx.step, ctx.index, ctx.choice) : filter ? filterHints(p.text, ctx.table, ctx.choice) : []
+  );
   return (
-    <span className="text-[12.5px] leading-relaxed break-words whitespace-pre-wrap">
+    <span className="text-[12.5px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
       {parts.map((p, i) =>
         p.kind === "text" ? (
-          <span key={i}>{p.text}</span>
+          <span key={i}>{withHints(p.text, 0, hints[i])}</span>
         ) : (
           <code key={i} className="box-decoration-clone rounded bg-brand/10 px-1 py-px font-mono text-[11.5px]">
-            {tokenizeExpression(p.text).map((t, j) => {
+            {tokenizeExpression(p.text).map((t, j, all) => {
               if (t.kind === "fn") return <span key={j} className="text-brand">{t.text}</span>;
               if (t.kind === "string") return <span key={j} className="text-success">{t.text}</span>;
               if (t.kind === "step" && ctx.index.byKey.has(t.name)) {
                 return (
-                  <button key={j} className="text-info underline decoration-dotted underline-offset-2 hover:decoration-solid" onClick={() => ctx.onSelectKey(t.name)} title={`Go to ${pretty(t.name)}`}>
+                  <InlineLink key={j} className="text-info" onClick={() => ctx.onSelectKey(t.name)} title={`Go to ${pretty(t.name)}`}>
                     {t.text}
-                  </button>
+                  </InlineLink>
                 );
               }
               if (t.kind === "variable" && ctx.index.variables.has(t.name.toLowerCase())) {
                 const decl = ctx.index.variables.get(t.name.toLowerCase())!;
                 return (
-                  <button key={j} className="text-warning underline decoration-dotted underline-offset-2 hover:decoration-solid" onClick={() => ctx.onSelectKey(decl.key)} title={`Declared in ${decl.name}`}>
+                  <InlineLink key={j} className="text-warning" onClick={() => ctx.onSelectKey(decl.key)} title={`Declared in ${decl.name}`}>
                     {t.text}
-                  </button>
+                  </InlineLink>
                 );
               }
-              return <span key={j}>{t.text}</span>;
+              const at = all.slice(0, j).reduce((n, x) => n + x.text.length, 0);
+              return <span key={j}>{withHints(t.text, at, hints[i])}</span>;
             })}
           </code>
         )

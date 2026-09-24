@@ -12,6 +12,7 @@ import type {
   Project,
   QueryResult,
   Settings,
+  TableChoices,
   TableMeta,
 } from "./types";
 
@@ -64,6 +65,9 @@ export const api = {
     invoke<TableMeta[]>("list_tables", { connectionId }),
   listColumns: (connectionId: string, table: string) =>
     invoke<ColumnMeta[]>("list_columns", { connectionId, table }),
+  /** `table`: logical name or entity set name. */
+  tableChoices: (connectionId: string, table: string) =>
+    invoke<TableChoices>("table_choices", { connectionId, table }),
 
   listFlows: (connectionId: string) => invoke<FlowList>("list_flows", { connectionId }),
   /** The flow's definition JSON (`clientdata`), pretty-printed. */

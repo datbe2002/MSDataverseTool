@@ -333,6 +333,11 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
     background: color-mix(in oklab, var(--info) 4%, transparent);
   }
   .flow-frame.is-branch { background: color-mix(in oklab, var(--brand) 4%, transparent); }
+  /* A child flow shown inside the step that runs it. */
+  .flow-frame.is-child {
+    border: 1.5px dashed color-mix(in oklab, var(--brand) 55%, transparent);
+    background: color-mix(in oklab, var(--brand) 7%, transparent);
+  }
   .flow-pill {
     display: flex; align-items: center; justify-content: center; padding: 0 10px;
     border-radius: 999px; border: 1px solid var(--line-strong); background: var(--s3);

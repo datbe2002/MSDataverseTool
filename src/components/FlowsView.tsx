@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { useStore } from "../store";
 import { definitionKey, summarize, useFlows } from "../lib/flows";
-import { buildOutline, childFlowIds, keyLines, type OutlineNode } from "../lib/flowOutline";
+import { buildOutline, childFlowIds, keyLines, type ChildFlow, type OutlineNode } from "../lib/flowOutline";
 import { ROUTES, flowRoute } from "../lib/navigation";
 import { FlowOutline } from "./FlowOutline";
 import { FlowDesigner } from "./FlowDesigner";
 import { relativeTime } from "../lib/history";
 import { EDITOR_THEME } from "../lib/monacoTheme";
-import { Search, Refresh, Copy, Flow, AlertTriangle, ArrowUpRight, Loader } from "./Icon";
+import { Search, Refresh, Copy, Flow, AlertTriangle, ArrowLeft, ArrowUpRight, Loader } from "./Icon";
 import type { FlowMeta } from "../types";
 
 type StateFilter = "all" | "on" | "off" | "suspended";
@@ -309,6 +309,26 @@ export function FlowsView() {
 type DefinitionTab = "json" | "designer";
 const TAB_KEY = "cds.flowTab";
 
+/**
+ * A flow opened from another one (a child flow, a caller): the flows it was
+ * opened from, oldest first, with the step each was left at. Kept in the
+ * history entry, so Back steps through them; `?step=` / `?tab=` on those
+ * entries bring the step back.
+ */
+interface Opened {
+  flowId: string;
+  /** Name of the step it was opened from, for the breadcrumb. */
+  step: string | null;
+}
+
+function openedFrom(state: unknown): Opened[] {
+  const trail = typeof state === "object" && state !== null ? (state as { trail?: unknown }).trail : undefined;
+  return Array.isArray(trail) ? (trail as Opened[]) : [];
+}
+
+/** "Run child flow" from a step id (its last path part). */
+const stepLabel = (id: string) => id.split("\u0001").pop()!.replace(/_/g, " ");
+
 function readTab(): DefinitionTab {
   try {
     return localStorage.getItem(TAB_KEY) === "designer" ? "designer" : "json";
@@ -337,10 +357,15 @@ function FlowChip({ id, name, onOpen }: { id: string; name: string | null; onOpe
 function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; flows: FlowMeta[] }) {
   const theme = useStore((s) => s.theme);
   const navigate = useNavigate();
+  const location = useLocation();
+  const [params] = useSearchParams();
+  const trail = useMemo(() => openedFrom(location.state), [location.state]);
   const pushToast = useStore((s) => s.pushToast);
   const key = definitionKey(connId, flow.id);
-  const definition = useFlows((s) => s.definitions[key]);
-  const definitionError = useFlows((s) => s.definitionErrors[key]);
+  const definitions = useFlows((s) => s.definitions);
+  const definitionErrors = useFlows((s) => s.definitionErrors);
+  const definition = definitions[key];
+  const definitionError = definitionErrors[key];
   const loadDefinition = useFlows((s) => s.loadDefinition);
 
   useEffect(() => {
@@ -354,8 +379,27 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
   // Child flows: the ones this flow runs, and (on demand) the ones that run it.
   const byId = useMemo(() => new Map(flows.map((f) => [f.id.toLowerCase(), f])), [flows]);
   const flowName = useCallback((id: string) => byId.get(id.toLowerCase())?.name ?? null, [byId]);
-  const openFlow = useCallback((id: string) => navigate(flowRoute(byId.get(id)?.id ?? id)), [byId, navigate]);
   const children = useMemo(() => (outline ? childFlowIds(outline) : []), [outline]);
+
+  // Child flows shown inside this one in the Designer (loaded when opened there).
+  const childOutlines = useRef(new Map<string, { json: string; outline: OutlineNode[] | null }>());
+  const childFlow = useCallback(
+    (id: string): ChildFlow => {
+      const meta = byId.get(id.toLowerCase());
+      if (!meta) return { status: "missing" };
+      const k = definitionKey(connId, meta.id);
+      if (definitionErrors[k]) return { status: "error", message: definitionErrors[k] };
+      const json = definitions[k];
+      if (json === undefined) {
+        loadDefinition(connId, meta.id);
+        return { status: "loading" };
+      }
+      let cached = childOutlines.current.get(k);
+      if (!cached || cached.json !== json) childOutlines.current.set(k, (cached = { json, outline: buildOutline(json) }));
+      return cached.outline ? { status: "ready", outline: cached.outline } : { status: "error", message: "Not a cloud flow" };
+    },
+    [byId, connId, definitions, definitionErrors, loadDefinition]
+  );
   // Only manually triggered flows can be run as a child flow.
   const callable = !!outline?.some((n) => n.kind === "trigger" && n.type.startsWith("Request"));
   const calls = useFlows((s) => s.calls[connId]);
@@ -372,11 +416,14 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
 
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const highlight = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null);
-  const [step, setStep] = useState<string | null>(null);
+  // Coming Back from a child flow (or opened at a step): that step is picked.
+  const [step, setStep] = useState<string | null>(() => params.get("step"));
+  const [editorReady, setEditorReady] = useState(false);
 
   const onMount: OnMount = (editor) => {
     editorRef.current = editor;
     highlight.current = editor.createDecorationsCollection();
+    setEditorReady(true);
   };
 
   /** Scrolls the JSON to the step's key and marks that line. */
@@ -402,7 +449,10 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
   const pending = definition === undefined && !definitionError;
 
   // JSON (outline + editor) or Designer; both follow the same picked step.
-  const [tab, setTabState] = useState<DefinitionTab>(readTab);
+  const [tab, setTabState] = useState<DefinitionTab>(() => {
+    const t = params.get("tab");
+    return t === "json" || t === "designer" ? t : readTab();
+  });
   const setTab = (t: DefinitionTab) => {
     setTabState(t);
     try {
@@ -428,6 +478,39 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
     return () => clearTimeout(t);
     // Only when switching tabs; picks within the JSON tab reveal themselves.
   }, [tab]);
+  // Opened at a step on the JSON tab: show it once the editor is up.
+  useEffect(() => {
+    if (!editorReady || tab !== "json") return;
+    const node = step ? stepsById.get(step) : null;
+    if (node) reveal(node);
+    // Once, when the editor first has the text.
+  }, [editorReady, lines]);
+
+  /**
+   * Opens another flow. This page is first marked with the step it's left
+   * at (`from`, or the picked one), so Back returns to that step.
+   * `at` opens the other flow at one of its steps.
+   */
+  const openFlow = useCallback(
+    async (id: string, from?: string | null, at?: { step: string; tab: DefinitionTab }) => {
+      const target = byId.get(id.toLowerCase())?.id ?? id;
+      const here = from === undefined ? step : from;
+      const back = new URLSearchParams({ tab });
+      if (here) back.set("step", here);
+      await navigate({ pathname: location.pathname, search: `?${back}` }, { replace: true, state: location.state });
+      const there = at ? `?${new URLSearchParams({ step: at.step, tab: at.tab })}` : "";
+      await navigate(
+        { pathname: flowRoute(target), search: there },
+        { state: { trail: [...trail, { flowId: flow.id, step: here ? stepLabel(here) : null }] } }
+      );
+    },
+    [byId, step, tab, navigate, location.pathname, location.state, trail, flow.id]
+  );
+  /** The first step running a child flow (a "Calls" chip opens it from there). */
+  const callerStep = useCallback(
+    (childId: string) => [...stepsById.values()].find((n) => n.childFlowId === childId.toLowerCase())?.id ?? null,
+    [stepsById]
+  );
 
   const copy = (text: string, what: string) =>
     navigator.clipboard
@@ -437,7 +520,36 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
 
   return (
     <div className="fade-in flex h-full min-h-0 flex-col">
-      <div className="shrink-0 px-8 pt-7 pb-5">
+      <div className={`shrink-0 px-8 pb-5 ${trail.length ? "pt-3" : "pt-7"}`}>
+        {trail.length > 0 && (
+          <nav className="mb-2 flex min-w-0 flex-wrap items-center gap-1 text-xs text-subtle" aria-label="Opened from">
+            <button
+              className="btn btn-ghost btn-sm -ml-2"
+              onClick={() => navigate(-1)}
+              title={`Back to “${flowName(trail[trail.length - 1].flowId) ?? "the previous flow"}”${
+                trail[trail.length - 1].step ? ` at ${trail[trail.length - 1].step}` : ""
+              }`}
+            >
+              <ArrowLeft size={13} /> Back
+            </button>
+            {trail.map((t, i) => (
+              <Fragment key={i}>
+                <button
+                  className="max-w-[320px] truncate rounded px-1 hover:text-fg hover:underline"
+                  onClick={() => navigate(-(trail.length - i))}
+                  title={t.step ? `Back to ${t.step}` : undefined}
+                >
+                  {flowName(t.flowId) ?? t.flowId}
+                  {t.step && <span className="text-subtle"> · {t.step}</span>}
+                </button>
+                <span aria-hidden="true">›</span>
+              </Fragment>
+            ))}
+            <span className="max-w-[320px] truncate px-1 text-muted" aria-current="page">
+              {flow.name || "(no name)"}
+            </span>
+          </nav>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -480,7 +592,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
                   Calls
                 </span>
                 {children.map((id) => (
-                  <FlowChip key={id} id={id} name={flowName(id)} onOpen={openFlow} />
+                  <FlowChip key={id} id={id} name={flowName(id)} onOpen={(c) => void openFlow(c, callerStep(c))} />
                 ))}
               </div>
             )}
@@ -491,7 +603,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
                 </span>
                 {callers ? (
                   callers.length ? (
-                    callers.map((id) => <FlowChip key={id} id={id} name={flowName(id)} onOpen={openFlow} />)
+                    callers.map((id) => <FlowChip key={id} id={id} name={flowName(id)} onOpen={(c) => void openFlow(c)} />)
                   ) : (
                     <span className="text-xs text-subtle">No flow in this environment runs it</span>
                   )
@@ -600,12 +712,20 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
           <>
             {tab === "designer" && outline && (
               <FlowDesigner
+                connId={connId}
+                flowId={flow.id}
                 outline={outline}
                 selectedId={step}
                 onSelect={setStep}
                 flowName={flowName}
-                onOpenFlow={openFlow}
+                onOpenFlow={(id, from) => void openFlow(id, from)}
+                childFlow={childFlow}
                 onShowInJson={(node) => {
+                  // A step of a child flow shown inline: its own flow has its JSON.
+                  if (node.origin) {
+                    void openFlow(node.origin.flowId, node.id, { step: node.origin.id, tab: "json" });
+                    return;
+                  }
                   setStep(node.id);
                   setTab("json");
                 }}
@@ -626,7 +746,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
                     selectedId={step}
                     onSelect={reveal}
                     flowName={flowName}
-                    onOpenFlow={openFlow}
+                    onOpenFlow={(id, from) => void openFlow(id, from)}
                   />
                 </div>
               )}
