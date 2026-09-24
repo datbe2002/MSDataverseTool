@@ -86,7 +86,12 @@ export function HistoryView() {
                         </div>
                       )}
                     </td>
-                    <td className="whitespace-nowrap text-muted">{h.connectionName}</td>
+                    <td className="text-muted">
+                      {/* Long environment names give the statement room. */}
+                      <div className="max-w-[11rem] truncate" title={h.connectionName}>
+                        {h.connectionName}
+                      </div>
+                    </td>
                     <td><StatusBadge entry={h} /></td>
                     <td className="text-right tabular-nums text-muted">{formatMs(h.ms)}</td>
                     <td className="whitespace-nowrap text-subtle">{relativeTime(h.at)}</td>

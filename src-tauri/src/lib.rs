@@ -5,11 +5,13 @@ mod discovery;
 mod dml;
 mod engine;
 mod error;
+mod fetchxml;
 mod flows;
 mod http;
 mod metadata;
 mod project;
 mod sql;
+mod views;
 
 use error::{AppError, AppResult};
 use serde::Serialize;
@@ -30,6 +32,8 @@ pub struct AppState {
     /// Full rows of recent streamed results whose long text the grid only
     /// got shortened (request id, rows), newest last.
     results: Mutex<std::collections::VecDeque<(String, std::sync::Arc<Vec<Vec<serde_json::Value>>>)>>,
+    /// "<host>|<table>" -> entity set name, for the FetchXML tool.
+    entity_sets: Mutex<HashMap<String, String>>,
 }
 
 /// Longest text the grid gets per cell; the rest stays in the backend.
@@ -133,20 +137,20 @@ async fn get_access_token(state: &AppState, project_id: &str, resource: &str) ->
 
     let project = project::get(project_id).ok_or_else(|| AppError::msg("Project not found"))?;
     let settings = settings_for(&project);
-    let hint = project.username.clone();
-    let refresh = auth::load_refresh_token(project_id).ok();
+    // No browser from here: when the refresh token no longer works, the
+    // command fails with SIGN_IN_REQUIRED and the app asks the user to sign
+    // in again (sign_in), then retries it.
+    let refresh = auth::load_refresh_token(project_id)
+        .map_err(|_| auth::sign_in_required(project_id, "Not signed in"))?;
     let resource_owned = resource.to_string();
 
-    let tokens = tokio::task::spawn_blocking(move || -> AppResult<auth::Tokens> {
-        if let Some(rt) = refresh {
-            if let Ok(t) = auth::refresh(&settings, &resource_owned, &rt) {
-                return Ok(t);
-            }
-        }
-        auth::interactive(&settings, &resource_owned, hint.as_deref())
-    })
-    .await
-    .map_err(AppError::msg)??;
+    let tokens = tokio::task::spawn_blocking(move || auth::refresh(&settings, &resource_owned, &refresh))
+        .await
+        .map_err(AppError::msg)?
+        .map_err(|e| match e {
+            auth::RefreshError::SignInRequired(reason) => auth::sign_in_required(project_id, &reason),
+            auth::RefreshError::Other(e) => e,
+        })?;
 
     if let Some(rt) = &tokens.refresh_token {
         let _ = auth::store_refresh_token(project_id, rt);
@@ -483,6 +487,228 @@ async fn flow_calls(
         .map_err(AppError::msg)?
 }
 
+#[tauri::command]
+async fn list_relationships(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+) -> AppResult<Vec<metadata::Relationship>> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || metadata::relationships(&host, &token, &table))
+        .await
+        .map_err(AppError::msg)?
+}
+
+/// System and personal views of a table, for the FetchXML tool (read only).
+#[tauri::command]
+async fn list_views(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+) -> AppResult<views::ViewList> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || views::list(&host, &token, &table))
+        .await
+        .map_err(AppError::msg)?
+}
+
+/// A FetchXML file opened or saved by the FetchXML tool.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct XmlFile {
+    path: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    contents: Option<String>,
+}
+
+#[tauri::command]
+async fn table_keys(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+) -> AppResult<metadata::TableKeys> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || metadata::table_keys(&host, &token, &table))
+        .await
+        .map_err(AppError::msg)?
+}
+
+/// Largest file the FetchXML tool opens.
+const MAX_XML_FILE: u64 = 5 * 1024 * 1024;
+
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+}
+
+/// Asks for a `.xml` file and reads it; `None` when the dialog was cancelled.
+#[tauri::command]
+async fn open_xml_file(window: tauri::WebviewWindow) -> AppResult<Option<XmlFile>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tokio::task::spawn_blocking(move || {
+        window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_title("Open FetchXML")
+            .add_filter("FetchXML", &["xml"])
+            .add_filter("All files", &["*"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(AppError::msg)?;
+    let Some(picked) = picked else { return Ok(None) };
+    let path = picked.into_path().map_err(AppError::msg)?;
+    if std::fs::metadata(&path)?.len() > MAX_XML_FILE {
+        return Err(AppError::msg("This file is larger than 5 MB — it isn't a FetchXML query."));
+    }
+    let bytes = std::fs::read(&path)?;
+    let text = String::from_utf8(bytes).map_err(|_| AppError::msg("This file isn't UTF-8 text."))?;
+    Ok(Some(XmlFile {
+        name: file_name(&path),
+        path: path.to_string_lossy().to_string(),
+        contents: Some(text.trim_start_matches('\u{feff}').to_string()),
+    }))
+}
+
+/// Saves exported rows (`extension` = "csv" or "json") to a file the user
+/// picks; `None` when the dialog was cancelled. CSV gets a UTF-8 BOM so
+/// Excel reads accents right.
+#[tauri::command]
+async fn export_file(
+    window: tauri::WebviewWindow,
+    contents: String,
+    suggested_name: String,
+    extension: String,
+) -> AppResult<Option<XmlFile>> {
+    use tauri_plugin_dialog::DialogExt;
+    let ext = extension.to_ascii_lowercase();
+    let label = match ext.as_str() {
+        "csv" => "CSV",
+        "json" => "JSON",
+        _ => return Err(AppError::msg("Rows are exported as .csv or .json.")),
+    };
+    let ext_for_dialog = ext.clone();
+    let picked = tokio::task::spawn_blocking(move || {
+        window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_title("Export rows")
+            .set_file_name(suggested_name)
+            .add_filter(label, &[ext_for_dialog.as_str()])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(AppError::msg)?;
+    let Some(picked) = picked else { return Ok(None) };
+    let mut path = picked.into_path().map_err(AppError::msg)?;
+    let same_ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().eq_ignore_ascii_case(&ext))
+        .unwrap_or(false);
+    if !same_ext {
+        path.set_extension(&ext);
+    }
+    let mut bytes = Vec::with_capacity(contents.len() + 3);
+    if ext == "csv" {
+        bytes.extend_from_slice(b"\xEF\xBB\xBF");
+    }
+    bytes.extend_from_slice(contents.as_bytes());
+    std::fs::write(&path, bytes)?;
+    Ok(Some(XmlFile { name: file_name(&path), path: path.to_string_lossy().to_string(), contents: None }))
+}
+
+/// Writes a FetchXML query to `path`, or to a file the user picks when
+/// `path` is `None` ("Save as"); `None` when that dialog was cancelled.
+/// Only `.xml` files are written.
+#[tauri::command]
+async fn save_xml_file(
+    window: tauri::WebviewWindow,
+    contents: String,
+    path: Option<String>,
+    suggested_name: Option<String>,
+) -> AppResult<Option<XmlFile>> {
+    use tauri_plugin_dialog::DialogExt;
+    let target = match path {
+        Some(p) => std::path::PathBuf::from(p),
+        None => {
+            let name = suggested_name.unwrap_or_else(|| "query.xml".to_string());
+            let picked = tokio::task::spawn_blocking(move || {
+                window
+                    .dialog()
+                    .file()
+                    .set_parent(&window)
+                    .set_title("Save FetchXML")
+                    .set_file_name(name)
+                    .add_filter("FetchXML", &["xml"])
+                    .blocking_save_file()
+            })
+            .await
+            .map_err(AppError::msg)?;
+            let Some(picked) = picked else { return Ok(None) };
+            let mut p = picked.into_path().map_err(AppError::msg)?;
+            if p.extension().is_none() {
+                p.set_extension("xml");
+            }
+            p
+        }
+    };
+    let is_xml = target
+        .extension()
+        .map(|e| e.to_string_lossy().eq_ignore_ascii_case("xml"))
+        .unwrap_or(false);
+    if !is_xml {
+        return Err(AppError::msg("FetchXML is saved as a .xml file."));
+    }
+    std::fs::write(&target, contents.as_bytes())?;
+    Ok(Some(XmlFile { name: file_name(&target), path: target.to_string_lossy().to_string(), contents: None }))
+}
+
+/// One page of a FetchXML query from the FetchXML tool. `entity` is the
+/// root `<entity name>`; the webview adds the paging attributes itself.
+#[tauri::command]
+async fn run_fetchxml(
+    state: State<'_, AppState>,
+    connection_id: String,
+    entity: String,
+    fetch_xml: String,
+) -> AppResult<fetchxml::FetchPage> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    let key = format!("{}|{}", host, entity.to_ascii_lowercase());
+    let known = state.entity_sets.lock().ok().and_then(|m| m.get(&key).cloned());
+    let entity_set = match known {
+        Some(set) => set,
+        None => {
+            let (h, t) = (host.clone(), token.clone());
+            let set = tokio::task::spawn_blocking(move || metadata::entity_set_name(&h, &t, &entity))
+                .await
+                .map_err(AppError::msg)??;
+            if let Ok(mut m) = state.entity_sets.lock() {
+                m.insert(key, set.clone());
+            }
+            set
+        }
+    };
+    let page = tokio::task::spawn_blocking(move || fetchxml::run(&host, &token, &entity_set, &fetch_xml))
+        .await
+        .map_err(AppError::msg)??;
+    let _ = connection::touch(&connection_id);
+    Ok(page)
+}
+
 /// Step 1 of a write: find the affected rows and build the requests.
 #[tauri::command]
 async fn prepare_dml(
@@ -514,14 +740,21 @@ async fn execute_dml(
     state: State<'_, AppState>,
     plan_id: String,
 ) -> AppResult<dml::DmlResult> {
-    let (project_id, plan) = state
+    const EXPIRED: &str = "This change has expired — run the statement again.";
+    // The token first: when it needs a new sign-in, the plan stays for the retry.
+    let (project_id, host) = state
+        .plans
+        .lock()
+        .ok()
+        .and_then(|plans| plans.get(&plan_id).map(|(p, plan)| (p.clone(), plan.host().to_string())))
+        .ok_or_else(|| AppError::msg(EXPIRED))?;
+    let token = get_access_token(state.inner(), &project_id, &format!("https://{}", host)).await?;
+    let (_, plan) = state
         .plans
         .lock()
         .ok()
         .and_then(|mut plans| plans.remove(&plan_id))
-        .ok_or_else(|| AppError::msg("This change has expired — run the statement again."))?;
-    let token =
-        get_access_token(state.inner(), &project_id, &format!("https://{}", plan.host())).await?;
+        .ok_or_else(|| AppError::msg(EXPIRED))?;
 
     let max_workers = config::load_settings().worker_threads as usize;
     let result = tokio::task::spawn_blocking(move || {
@@ -569,6 +802,7 @@ fn set_settings(client_id: String, tenant: String, worker_threads: u32) -> AppRe
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .setup(|_app| {
             // Wraps a pre-projects install (one account + its connections)
@@ -597,6 +831,13 @@ pub fn run() {
             list_flows,
             flow_definition,
             flow_calls,
+            run_fetchxml,
+            list_relationships,
+            list_views,
+            open_xml_file,
+            save_xml_file,
+            table_keys,
+            export_file,
             prepare_dml,
             execute_dml,
             discard_dml,

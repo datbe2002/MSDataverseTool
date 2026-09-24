@@ -116,7 +116,7 @@ export const StepSearchBox = forwardRef<HTMLInputElement, BoxProps>(function Ste
   };
 
   return (
-    <div className="relative w-[320px]">
+    <div className="relative w-[320px] max-w-full">
       <div className="flex h-8 items-center gap-1 rounded-[7px] border border-line bg-s2 pr-1 shadow-sm focus-within:border-brand">
         <Search size={14} className="ml-2.5 shrink-0 text-subtle" />
         <input

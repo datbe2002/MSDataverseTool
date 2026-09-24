@@ -169,6 +169,56 @@ pub fn readable_attributes(host: &str, token: &str, table: &str) -> AppResult<Ve
     Ok(out)
 }
 
+/// A table's key and name columns (`accountid`, `name`), for counting rows
+/// and for a starting query.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TableKeys {
+    pub primary_id: String,
+    pub primary_name: Option<String>,
+}
+
+pub fn table_keys(host: &str, token: &str, table: &str) -> AppResult<TableKeys> {
+    let table = table.to_ascii_lowercase();
+    if !is_valid_logical_name(&table) {
+        return Err(AppError::msg(format!("Invalid table name: {}", table)));
+    }
+    let url = format!(
+        "https://{}/api/data/v9.2/EntityDefinitions(LogicalName='{}')?$select=PrimaryIdAttribute,PrimaryNameAttribute",
+        host, table
+    );
+    let body = get_json(&url, token, None)?;
+    let field = |name: &str| body.get(name).and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+    Ok(TableKeys {
+        primary_id: field("PrimaryIdAttribute").ok_or_else(|| AppError::msg(format!("Table `{}` has no primary key.", table)))?,
+        primary_name: field("PrimaryNameAttribute"),
+    })
+}
+
+/// The Web API collection a table is read from (`account` → `accounts`).
+pub fn entity_set_name(host: &str, token: &str, table: &str) -> AppResult<String> {
+    let table = table.to_ascii_lowercase();
+    if !is_valid_logical_name(&table) {
+        return Err(AppError::msg(format!("Invalid table name: {}", table)));
+    }
+    let url = format!(
+        "https://{}/api/data/v9.2/EntityDefinitions(LogicalName='{}')?$select=EntitySetName",
+        host, table
+    );
+    let body = get_json(&url, token, None).map_err(|e| {
+        if e.to_string().contains("(404)") {
+            AppError::msg(format!("There is no table named `{}` in this environment.", table))
+        } else {
+            e
+        }
+    })?;
+    body.get("EntitySetName")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .ok_or_else(|| AppError::msg(format!("Table `{}` can't be read through the Web API.", table)))
+}
+
 // ---- metadata needed to write data (used by dml.rs) ----
 
 pub struct EntityInfo {
@@ -288,6 +338,114 @@ pub fn many_to_one(host: &str, token: &str, table: &str) -> AppResult<Vec<(Strin
         .unwrap_or_default())
 }
 
+// ---- relationships, for joins in the FetchXML tool ----
+
+/// A way to join a table to another, as `<link-entity>` attributes.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Relationship {
+    /// `manyToOne` (this table's lookup), `oneToMany` (another table's lookup
+    /// to this one) or `manyToMany`.
+    pub kind: &'static str,
+    pub schema_name: String,
+    /// The table joined in (`name`); for N:N the table on the other side.
+    pub table: String,
+    /// Column on `table` (`from`).
+    pub from: String,
+    /// Column on the queried table (`to`); for N:N its key.
+    pub to: String,
+    /// N:N: the intersect table, joined first with `from` = `intersect_from`
+    /// (its column holding the queried table's key) and `to` = `to`; `table`
+    /// is then joined to it with `from` = `from`, `to` = `intersect_to`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intersect: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intersect_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intersect_to: Option<String>,
+}
+
+fn relationships_from(table: &str, primary_id: &str, n1: &Value, one_n: &Value, nn: &Value) -> Vec<Relationship> {
+    let rows = |v: &Value| v.get("value").and_then(|a| a.as_array()).cloned().unwrap_or_default();
+    let s = |r: &Value, key: &str| r.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let mut out = Vec::new();
+    for r in rows(n1) {
+        out.push(Relationship {
+            kind: "manyToOne",
+            schema_name: s(&r, "SchemaName"),
+            table: s(&r, "ReferencedEntity"),
+            from: s(&r, "ReferencedAttribute"),
+            to: s(&r, "ReferencingAttribute"),
+            intersect: None,
+            intersect_from: None,
+            intersect_to: None,
+        });
+    }
+    for r in rows(one_n) {
+        out.push(Relationship {
+            kind: "oneToMany",
+            schema_name: s(&r, "SchemaName"),
+            table: s(&r, "ReferencingEntity"),
+            from: s(&r, "ReferencingAttribute"),
+            to: s(&r, "ReferencedAttribute"),
+            intersect: None,
+            intersect_from: None,
+            intersect_to: None,
+        });
+    }
+    for r in rows(nn) {
+        let (e1, e2) = (s(&r, "Entity1LogicalName"), s(&r, "Entity2LogicalName"));
+        let (a1, a2) = (s(&r, "Entity1IntersectAttribute"), s(&r, "Entity2IntersectAttribute"));
+        // Which side is the queried table (entity 1 for a table related to itself).
+        let (other, mine, theirs) = if e1 == table { (e2, a1, a2) } else { (e1, a2, a1) };
+        out.push(Relationship {
+            kind: "manyToMany",
+            schema_name: s(&r, "SchemaName"),
+            table: other,
+            // Intersect columns are named after the keys they hold.
+            from: theirs.clone(),
+            to: primary_id.to_string(),
+            intersect: Some(s(&r, "IntersectEntityName")),
+            intersect_from: Some(mine),
+            intersect_to: Some(theirs),
+        });
+    }
+    out.retain(|r| !r.table.is_empty() && !r.from.is_empty() && !r.to.is_empty());
+    out.sort_by(|a, b| (a.kind, &a.table, &a.to).cmp(&(b.kind, &b.table, &b.to)));
+    out
+}
+
+/// Every relationship of `table` (N:1, 1:N, N:N).
+pub fn relationships(host: &str, token: &str, table: &str) -> AppResult<Vec<Relationship>> {
+    let table = table.to_ascii_lowercase();
+    if !is_valid_logical_name(&table) {
+        return Err(AppError::msg(format!("Invalid table name: {}", table)));
+    }
+    let base = format!("https://{}/api/data/v9.2/EntityDefinitions(LogicalName='{}')", host, table);
+    let urls = [
+        format!("{}?$select=PrimaryIdAttribute", base),
+        format!("{}/ManyToOneRelationships?$select=SchemaName,ReferencedEntity,ReferencedAttribute,ReferencingAttribute", base),
+        format!("{}/OneToManyRelationships?$select=SchemaName,ReferencingEntity,ReferencingAttribute,ReferencedAttribute", base),
+        format!(
+            "{}/ManyToManyRelationships?$select=SchemaName,IntersectEntityName,Entity1LogicalName,Entity1IntersectAttribute,Entity2LogicalName,Entity2IntersectAttribute",
+            base
+        ),
+    ];
+    let results: Vec<AppResult<Value>> = std::thread::scope(|s| {
+        let handles: Vec<_> = urls.iter().map(|url| s.spawn(move || get_json(url, token, None))).collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or_else(|_| Err(AppError::msg("metadata request panicked"))))
+            .collect()
+    });
+    let mut it = results.into_iter();
+    let mut next = || it.next().unwrap_or_else(|| Err(AppError::msg("missing metadata response")));
+    let entity = next()?;
+    let (n1, one_n, nn) = (next()?, next()?, next()?);
+    let primary_id = entity.get("PrimaryIdAttribute").and_then(|v| v.as_str()).unwrap_or("");
+    Ok(relationships_from(&table, primary_id, &n1, &one_n, &nn))
+}
+
 // ---- choice labels for the Flows tool (a step compares `statuscode` to 100000001) ----
 
 #[derive(Serialize, Clone)]
@@ -374,4 +532,30 @@ pub fn table_choices(host: &str, token: &str, table: &str) -> AppResult<TableCho
         }
     }
     Ok(TableChoices { table: logical, columns })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn relationships_become_link_entity_attributes() {
+        let n1 = json!({"value":[{"SchemaName":"account_primary_contact","ReferencedEntity":"contact","ReferencedAttribute":"contactid","ReferencingAttribute":"primarycontactid"}]});
+        let one_n = json!({"value":[{"SchemaName":"contact_customer_accounts","ReferencingEntity":"contact","ReferencingAttribute":"parentcustomerid","ReferencedAttribute":"accountid"}]});
+        let nn = json!({"value":[{"SchemaName":"accountleads_association","IntersectEntityName":"accountleads","Entity1LogicalName":"lead","Entity1IntersectAttribute":"leadid","Entity2LogicalName":"account","Entity2IntersectAttribute":"accountid"}]});
+        let rels = relationships_from("account", "accountid", &n1, &one_n, &nn);
+        let short: Vec<_> = rels.iter().map(|r| (r.kind, r.table.as_str(), r.from.as_str(), r.to.as_str())).collect();
+        assert_eq!(
+            short,
+            vec![
+                ("manyToMany", "lead", "leadid", "accountid"),
+                ("manyToOne", "contact", "contactid", "primarycontactid"),
+                ("oneToMany", "contact", "parentcustomerid", "accountid"),
+            ]
+        );
+        assert_eq!(rels[0].intersect.as_deref(), Some("accountleads"));
+        assert_eq!(rels[0].intersect_from.as_deref(), Some("accountid"));
+        assert_eq!(rels[0].intersect_to.as_deref(), Some("leadid"));
+    }
 }

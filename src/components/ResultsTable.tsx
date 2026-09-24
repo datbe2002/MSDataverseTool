@@ -1,17 +1,17 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useStore, activeTabOf } from "../store";
 import { Table, AlertTriangle, Check, Loader, Copy } from "./Icon";
-import type { Cell } from "../types";
+import type { Cell, QueryResult } from "../types";
 import type { StatementOutcome } from "../store";
 
-function ErrorState({ message }: { message: string | null }) {
+export function ErrorState({ message, title = "Query failed" }: { message: string | null; title?: string }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
       <div className="grid h-11 w-11 place-items-center rounded-xl bg-danger/12 text-danger ring-1 ring-inset ring-danger/25">
         <AlertTriangle size={20} />
       </div>
       <div className="max-w-md">
-        <div className="text-sm font-medium text-danger">Query failed</div>
+        <div className="text-sm font-medium text-danger">{title}</div>
         {message && (
           <div className="mt-2 max-h-48 overflow-auto rounded-lg border border-line bg-s1 px-3 py-2 text-left font-mono text-xs leading-relaxed text-muted">
             {message}
@@ -87,7 +87,7 @@ function cellTitle(v: Cell): string {
   return s;
 }
 
-function Skeleton() {
+export function Skeleton() {
   return (
     <div className="p-4">
       <div className="flex gap-3">
@@ -106,7 +106,7 @@ function Skeleton() {
   );
 }
 
-function Grid({ result }: { result: NonNullable<StatementOutcome["result"]> }) {
+export function Grid({ result }: { result: Pick<QueryResult, "columns" | "rows"> }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(400);

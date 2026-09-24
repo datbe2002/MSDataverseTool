@@ -60,18 +60,20 @@ export function SchemaView() {
   }
 
   return (
-    <div className="grid h-full grid-cols-[288px_1fr]">
+    <div className="grid h-full grid-cols-[288px_minmax(0,1fr)]">
       {/* Table list */}
       <div className="flex min-h-0 flex-col border-r border-line bg-s1">
-        <div className="relative px-3 pt-3">
-          <Search size={14} className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 text-subtle" />
-          <input
-            className="input !pl-8"
-            placeholder={tables ? `Filter ${tables.length.toLocaleString()} tables…` : "Filter tables…"}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            aria-label="Filter tables"
-          />
+        <div className="px-3 pt-3">
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
+            <input
+              className="input !pl-8"
+              placeholder={tables ? `Filter ${tables.length.toLocaleString()} tables…` : "Filter tables…"}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              aria-label="Filter tables"
+            />
+          </div>
         </div>
         <div className="seg mx-3 my-2.5 !flex" role="group" aria-label="Filter by table kind">
           {(
@@ -178,14 +180,14 @@ export function SchemaView() {
         ) : (
           <div className="fade-in px-8 py-7" key={table.logicalName}>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h2 className="font-mono text-lg font-semibold tracking-tight">{table.logicalName}</h2>
+                  <h2 className="min-w-0 font-mono text-lg font-semibold tracking-tight [overflow-wrap:anywhere]">{table.logicalName}</h2>
                   <span className={`badge ${table.isCustom ? "badge-warning" : "badge-neutral"}`}>
                     {table.isCustom ? "custom" : "system"}
                   </span>
                 </div>
-                <p className="text-sm text-muted">
+                <p className="text-sm text-muted [overflow-wrap:anywhere]">
                   {table.displayName}
                   {columns ? ` · ${columns.length} columns` : ""}
                 </p>
@@ -214,7 +216,7 @@ export function SchemaView() {
               </div>
             </div>
 
-            <div className="card mt-5 overflow-hidden">
+            <div className="card mt-5 overflow-x-auto">
               <table className="tbl">
                 <thead>
                   <tr>
@@ -234,7 +236,7 @@ export function SchemaView() {
                       ))
                     : columns.map((c) => (
                         <tr key={c.logicalName} className="row">
-                          <td className="font-mono text-[12.5px]">{c.logicalName}</td>
+                          <td className="font-mono text-[12.5px] [overflow-wrap:anywhere]">{c.logicalName}</td>
                           <td>{c.displayName}</td>
                           <td>
                             <span className="badge badge-neutral font-mono !text-[11px]">{c.attributeType}</span>

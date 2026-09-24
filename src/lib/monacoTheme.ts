@@ -24,6 +24,11 @@ export function defineEditorThemes(monaco: typeof Monaco) {
       { token: "type", foreground: "f2ad73" },
       { token: "string.key.json", foreground: "b0a2fe" },
       { token: "keyword.json", foreground: "f2ad73" },
+      // FetchXML
+      { token: "tag.xml", foreground: "b0a2fe" },
+      { token: "attribute.name.xml", foreground: "f2ad73" },
+      { token: "attribute.value.xml", foreground: "89d298" },
+      { token: "delimiter.xml", foreground: "777986" },
     ],
     colors: {
       "editor.background": "#101119",
@@ -71,6 +76,10 @@ export function defineEditorThemes(monaco: typeof Monaco) {
       { token: "type", foreground: "ad5600" },
       { token: "string.key.json", foreground: "6741ca" },
       { token: "keyword.json", foreground: "ad5600" },
+      { token: "tag.xml", foreground: "6741ca" },
+      { token: "attribute.name.xml", foreground: "ad5600" },
+      { token: "attribute.value.xml", foreground: "21763c" },
+      { token: "delimiter.xml", foreground: "717480" },
     ],
     colors: {
       "editor.background": "#ffffff",

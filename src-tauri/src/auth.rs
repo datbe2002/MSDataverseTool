@@ -67,6 +67,29 @@ pub const SIGN_IN_CANCELLED: &str = "Sign-in was cancelled";
 /// Error text of a sign-in the browser never came back from.
 pub const SIGN_IN_TIMED_OUT: &str = "Sign-in timed out";
 
+/// Start of the error a command fails with when the project's sign-in no
+/// longer works (refresh token expired or revoked, never signed in):
+/// `SIGN_IN_REQUIRED:<project id>:<reason>`. The frontend asks the user to
+/// sign in again and retries the command.
+pub const SIGN_IN_REQUIRED: &str = "SIGN_IN_REQUIRED";
+
+pub fn sign_in_required(project_id: &str, reason: &str) -> AppError {
+    AppError::msg(format!("{}:{}:{}", SIGN_IN_REQUIRED, project_id, reason))
+}
+
+/// Why a refresh didn't give a token.
+#[derive(Debug)]
+pub enum RefreshError {
+    /// Entra won't take the refresh token any more (expired, revoked, a
+    /// policy wants a fresh sign-in or MFA): only signing in again helps.
+    SignInRequired(String),
+    /// Anything else (offline, Entra unavailable…): signing in wouldn't help.
+    Other(AppError),
+}
+
+/// OAuth error codes that mean "sign in again" rather than "try later".
+const SIGN_IN_ERRORS: &[&str] = &["invalid_grant", "interaction_required", "login_required", "consent_required"];
+
 /// Cancel flag of the interactive sign-in currently waiting, if any.
 static CURRENT_SIGN_IN: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 
@@ -201,22 +224,37 @@ pub fn interactive(settings: &Settings, resource: &str, login_hint: Option<&str>
         ("code_verifier", verifier.as_str()),
         ("scope", scope.as_str()),
     ])?;
-    exchange(settings, &body)
+    exchange(settings, &body).map_err(|(_, e)| e)
 }
 
 /// Silent token acquisition for a resource using a stored refresh token.
-pub fn refresh(settings: &Settings, resource: &str, refresh_token: &str) -> AppResult<Tokens> {
+pub fn refresh(settings: &Settings, resource: &str, refresh_token: &str) -> Result<Tokens, RefreshError> {
     let scope = scope_for(resource);
     let body = serde_urlencoded::to_string([
         ("client_id", settings.client_id.as_str()),
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh_token),
         ("scope", scope.as_str()),
-    ])?;
-    exchange(settings, &body)
+    ])
+    .map_err(|e| RefreshError::Other(e.into()))?;
+    exchange(settings, &body).map_err(|(code, e)| refresh_error(code.as_deref(), e))
 }
 
-fn exchange(settings: &Settings, body: &str) -> AppResult<Tokens> {
+fn refresh_error(code: Option<&str>, e: AppError) -> RefreshError {
+    match code {
+        Some(code) if SIGN_IN_ERRORS.contains(&code) => RefreshError::SignInRequired(first_line(&e.to_string())),
+        _ => RefreshError::Other(e),
+    }
+}
+
+/// Entra's error_description minus its trace / correlation id lines.
+fn first_line(description: &str) -> String {
+    description.lines().next().unwrap_or("").trim().to_string()
+}
+
+/// Redeems a grant at the token endpoint. On an error answer, the OAuth
+/// `error` code comes with it.
+fn exchange(settings: &Settings, body: &str) -> Result<Tokens, (Option<String>, AppError)> {
     let token_url = format!("{}/oauth2/v2.0/token", authority(&settings.tenant));
     let resp = ureq::post(&token_url)
         .set("Content-Type", "application/x-www-form-urlencoded")
@@ -224,7 +262,7 @@ fn exchange(settings: &Settings, body: &str) -> AppResult<Tokens> {
 
     match resp {
         Ok(r) => {
-            let tr: TokenResponse = r.into_json()?;
+            let tr: TokenResponse = r.into_json().map_err(|e| (None, e.into()))?;
             Ok(Tokens {
                 access_token: tr.access_token,
                 refresh_token: tr.refresh_token,
@@ -234,18 +272,13 @@ fn exchange(settings: &Settings, body: &str) -> AppResult<Tokens> {
         }
         Err(ureq::Error::Status(_code, r)) => {
             let text = r.into_string().unwrap_or_default();
-            let msg = serde_json::from_str::<serde_json::Value>(&text)
-                .ok()
-                .and_then(|v| {
-                    v.get("error_description")
-                        .or_else(|| v.get("error"))
-                        .and_then(|x| x.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or(text);
-            Err(AppError::msg(msg))
+            let json = serde_json::from_str::<serde_json::Value>(&text).ok();
+            let field = |key: &str| json.as_ref().and_then(|v| v.get(key)).and_then(|x| x.as_str()).map(|s| s.to_string());
+            let code = field("error");
+            let msg = field("error_description").or_else(|| code.clone()).unwrap_or(text);
+            Err((code, AppError::msg(msg)))
         }
-        Err(e) => Err(AppError::msg(e.to_string())),
+        Err(e) => Err((None, AppError::msg(e.to_string()))),
     }
 }
 
@@ -347,6 +380,28 @@ pub fn take_legacy_refresh_token() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_dead_refresh_token_asks_for_a_new_sign_in() {
+        let expired = "AADSTS700082: The refresh token has expired due to inactivity.
+Trace ID: 1
+Correlation ID: 2";
+        match refresh_error(Some("invalid_grant"), AppError::msg(expired)) {
+            RefreshError::SignInRequired(reason) => {
+                assert_eq!(reason, "AADSTS700082: The refresh token has expired due to inactivity.")
+            }
+            RefreshError::Other(_) => panic!("invalid_grant must ask for a sign-in"),
+        }
+        assert!(matches!(refresh_error(Some("interaction_required"), AppError::msg("MFA")), RefreshError::SignInRequired(_)));
+        // Offline, or Entra having a bad day: signing in wouldn't help.
+        assert!(matches!(refresh_error(None, AppError::msg("Connection refused")), RefreshError::Other(_)));
+        assert!(matches!(refresh_error(Some("temporarily_unavailable"), AppError::msg("busy")), RefreshError::Other(_)));
+    }
+
+    #[test]
+    fn sign_in_required_names_the_project() {
+        assert_eq!(sign_in_required("p1", "Not signed in").to_string(), "SIGN_IN_REQUIRED:p1:Not signed in");
+    }
 
     fn loopback() -> (tiny_http::Server, String) {
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();

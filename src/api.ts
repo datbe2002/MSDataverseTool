@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke, type InvokeArgs } from "@tauri-apps/api/core";
+import { withReauth } from "./lib/reauth";
 import type {
   Cell,
   ColumnMeta,
@@ -7,14 +8,22 @@ import type {
   DmlResult,
   EngineMode,
   Environment,
+  FetchPage,
   FlowCall,
   FlowList,
   Project,
   QueryResult,
+  Relationship,
   Settings,
   TableChoices,
+  TableKeys,
   TableMeta,
+  ViewList,
+  XmlFile,
 } from "./types";
+
+/** A command; when its sign-in has expired, it waits for the user to sign in again and reruns. */
+const invoke = <T>(cmd: string, args?: InvokeArgs) => withReauth(() => tauriInvoke<T>(cmd, args));
 
 export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
@@ -75,6 +84,25 @@ export const api = {
     invoke<string>("flow_definition", { connectionId, flowId }),
   /** Every child flow call in the environment (reads all definitions). */
   flowCalls: (connectionId: string) => invoke<FlowCall[]>("flow_calls", { connectionId }),
+
+  /** N:1, 1:N and N:N relationships of a table (for `<link-entity>`). */
+  listRelationships: (connectionId: string, table: string) =>
+    invoke<Relationship[]>("list_relationships", { connectionId, table }),
+  /** System and personal views of a table (read only). */
+  listViews: (connectionId: string, table: string) => invoke<ViewList>("list_views", { connectionId, table }),
+  /** Open dialog for a .xml file; null when cancelled. */
+  openXmlFile: () => invoke<XmlFile | null>("open_xml_file"),
+  /** Writes to `path`, or asks where ("Save as") when it's null; null when cancelled. */
+  saveXmlFile: (contents: string, path: string | null, suggestedName: string | null) =>
+    invoke<XmlFile | null>("save_xml_file", { contents, path, suggestedName }),
+  /** A table's key and name columns. */
+  tableKeys: (connectionId: string, table: string) => invoke<TableKeys>("table_keys", { connectionId, table }),
+  /** Save dialog for exported rows (`extension` "csv" | "json"); null when cancelled. */
+  exportFile: (contents: string, suggestedName: string, extension: "csv" | "json") =>
+    invoke<XmlFile | null>("export_file", { contents, suggestedName, extension }),
+  /** One page of a FetchXML query; `entity` is its root `<entity name>`. */
+  runFetchXml: (connectionId: string, entity: string, fetchXml: string) =>
+    invoke<FetchPage>("run_fetchxml", { connectionId, entity, fetchXml }),
 
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (clientId: string, tenant: string, workerThreads: number) =>

@@ -55,7 +55,7 @@ export function ConnectionSwitcher({ onEdit, onAdd, onDiscover }: Props) {
     <div className="relative min-w-0" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex h-8 min-w-0 items-center gap-2 rounded-md px-2 transition hover:bg-s3"
+        className="flex h-8 min-w-0 max-w-full items-center gap-2 rounded-md px-2 transition hover:bg-s3"
         title="Switch connection"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -65,7 +65,7 @@ export function ConnectionSwitcher({ onEdit, onAdd, onDiscover }: Props) {
           <>
             <span className="truncate text-sm font-semibold">{active.name}</span>
             <TagBadge connection={active} size="md" />
-            <span className="hidden truncate font-mono text-xs text-subtle lg:inline">
+            <span className="hidden min-w-0 truncate font-mono text-xs text-subtle lg:inline">
               {active.host}
             </span>
           </>

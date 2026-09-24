@@ -3,6 +3,7 @@ import { useStore, activeTabOf } from "../store";
 import { tagStyle } from "../lib/tags";
 import { ROUTES } from "../lib/navigation";
 import { splitStatements } from "../lib/sqlStatements";
+import { useFetchXml, activeRunOf } from "../lib/fetchXmlStore";
 import { ConnectionSwitcher } from "./ConnectionSwitcher";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { Play, Loader, Sun, Moon } from "./Icon";
@@ -18,6 +19,7 @@ interface Props {
 
 export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject }: Props) {
   const isQuery = useMatch(ROUTES.query) !== null;
+  const isFetchXml = useMatch(ROUTES.fetchxml) !== null;
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const run = useStore((s) => s.run);
@@ -29,6 +31,8 @@ export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject 
   const active = connections.find((c) => c.id === activeId) ?? null;
   const style = active?.tag ? tagStyle(active.color) : null;
   const runKey = useStore((s) => s.keybindings.run[0]);
+  const fetchRun = useFetchXml((s) => activeRunOf(s, activeId));
+  const fetchBusy = fetchRun?.status === "running" || !!fetchRun?.loadingMore;
 
   const runLabel = running
     ? "Running…"
@@ -44,10 +48,10 @@ export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject 
       {style && <div className={`absolute inset-x-0 top-0 h-[2px] ${style.stripe}`} aria-hidden="true" />}
       <div className={`flex h-12 items-center gap-2 px-3 ${style ? style.tint : ""}`}>
         <ProjectSwitcher onAdd={onAddProject} onEdit={onEditProject} />
-        <span className="text-line-strong" aria-hidden="true">/</span>
+        <span className="shrink-0 text-line-strong" aria-hidden="true">/</span>
         <ConnectionSwitcher onEdit={onEdit} onAdd={onAdd} onDiscover={onDiscover} />
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <button
             onClick={toggleTheme}
             className="btn btn-ghost btn-icon"
@@ -66,6 +70,18 @@ export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject 
               {running ? <Loader size={14} /> : <Play size={12} />}
               {runLabel}
               {!running && runKey && <span className="-mr-1 ml-1 rounded bg-white/15 px-1.5 py-px font-mono text-[10.5px] font-normal">{runKey}</span>}
+            </button>
+          )}
+          {isFetchXml && (
+            <button
+              onClick={() => void useFetchXml.getState().run()}
+              disabled={fetchBusy || !active}
+              className="btn btn-primary"
+              title={active ? "Execute the FetchXML query" : "Select a connection first"}
+            >
+              {fetchBusy ? <Loader size={14} /> : <Play size={12} />}
+              {fetchBusy ? "Running…" : "Execute"}
+              {!fetchBusy && runKey && <span className="-mr-1 ml-1 rounded bg-white/15 px-1.5 py-px font-mono text-[10.5px] font-normal">{runKey}</span>}
             </button>
           )}
         </div>

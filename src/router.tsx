@@ -5,6 +5,7 @@ import { OverviewView } from "./components/OverviewView";
 import { SchemaView } from "./components/SchemaView";
 import { HistoryView } from "./components/HistoryView";
 import { FlowsView } from "./components/FlowsView";
+import { FetchXmlView } from "./components/FetchXmlView";
 import { ROUTES, setNavigator } from "./lib/navigation";
 
 function OverviewRoute() {
@@ -32,6 +33,7 @@ export const router = createHashRouter([
         ],
       },
       { path: "flows/:flowId?", element: <FlowsView /> },
+      { path: "fetchxml", element: <FetchXmlView /> },
       { path: "*", element: <Navigate to={ROUTES.overview} replace /> },
     ],
   },

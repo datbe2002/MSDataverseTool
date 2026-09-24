@@ -67,6 +67,12 @@ function subtitle(step: OutlineNode, childName: string | null, hidden?: number) 
 
 const hidden = { opacity: 0, pointerEvents: "none" } as const;
 
+/** Canvas width the step panel covers: it floats over a narrow designer (see FlowStepPanel). */
+function panelOver(box: HTMLElement): number {
+  const aside = box.parentElement?.querySelector(":scope > aside");
+  return aside instanceof HTMLElement && getComputedStyle(aside).position === "absolute" ? aside.offsetWidth : 0;
+}
+
 /** The card of one step (also a collapsed container). */
 function CardBody({ data, children }: { data: NodeData; children?: React.ReactNode }) {
   const step = data.g.step!;
@@ -369,9 +375,11 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
     const left = g.x + (g.w - cardW) / 2;
     const sx = left * zoom + x;
     const sy = g.y * zoom + y;
-    const inView = sx >= 0 && sy >= 0 && sx + cardW * zoom <= box.clientWidth && sy + CARD_H * zoom <= box.clientHeight;
+    const covered = panelOver(box);
+    const inView = sx >= 0 && sy >= 0 && sx + cardW * zoom <= box.clientWidth - covered && sy + CARD_H * zoom <= box.clientHeight;
     if (!inView) {
-      void rf.setCenter(left + cardW / 2, g.y + CARD_H / 2, { zoom: Math.max(zoom, 0.8), duration: 300 });
+      const z = Math.max(zoom, 0.8);
+      void rf.setCenter(left + cardW / 2 + covered / 2 / z, g.y + CARD_H / 2, { zoom: z, duration: 300 });
     }
   }, [selectedId, graph, rf, ready]);
 
@@ -385,7 +393,7 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
     // A step inside a child flow that's still opening: centred once it's drawn.
     if (selectedId) {
       const picked = graph.nodes.find((n) => n.id === selectedId);
-      if (picked) void rf.setCenter(picked.x + picked.w / 2, picked.y + CARD_H / 2, { zoom: 0.9 });
+      if (picked) void rf.setCenter(picked.x + picked.w / 2 + panelOver(box) / 2 / 0.9, picked.y + CARD_H / 2, { zoom: 0.9 });
       return;
     }
     // Readable first: never below 60%, even if the widest part doesn't fit.
@@ -412,12 +420,12 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
 
   return (
     <div
-      className="flex h-full min-h-0"
+      className="@container/designer relative flex h-full min-h-0"
       onKeyDown={(e) => {
         if (e.key === "Escape" && selectedId) onSelect(null);
       }}
     >
-      <div ref={boxRef} className="relative min-w-0 flex-1">
+      <div ref={boxRef} className="@container relative min-w-0 flex-1">
         <ReactFlow
           className="hexa-flow"
           nodes={nodes}
@@ -439,7 +447,7 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
           attributionPosition="top-right"
         >
           <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
-          <Panel position="top-left" className="flex items-start gap-1.5">
+          <Panel position="top-left" className="flex max-w-[calc(100%-30px)] flex-wrap items-start gap-1.5">
             <StepSearchBox
               ref={searchRef}
               query={query}
@@ -468,6 +476,7 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
           </Panel>
           <Controls showInteractive={false} position="bottom-left" />
           <MiniMap
+            className="@max-xl:!hidden short:!hidden"
             position="bottom-right"
             pannable
             zoomable
@@ -476,7 +485,7 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
             nodeBorderRadius={4}
           />
         </ReactFlow>
-        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-s1/90 px-2 py-1 text-[11px] text-subtle shadow-sm">
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-s1/90 px-2 py-1 text-[11px] text-subtle shadow-sm @max-xl:hidden">
           Scroll to move · Ctrl + scroll to zoom
         </div>
       </div>

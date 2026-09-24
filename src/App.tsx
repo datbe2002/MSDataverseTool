@@ -12,6 +12,7 @@ import {
   EditConnectionModal,
   EnvironmentPickerModal,
   ProjectModal,
+  ReauthModal,
   SettingsModal,
   SignOutConfirmModal,
   SwitchConfirmModal,
@@ -19,6 +20,7 @@ import {
 import { matchesBinding } from "./lib/keys";
 import { ROUTES } from "./lib/navigation";
 import { startUpdateChecks } from "./lib/updater";
+import { useFetchXml } from "./lib/fetchXmlStore";
 import type { Connection, Project } from "./types";
 
 /** Modal openers handed to routed views through the outlet context. */
@@ -35,6 +37,7 @@ export function RootLayout() {
   const saveActiveTab = useStore((s) => s.saveActiveTab);
   const runBindings = useStore((s) => s.keybindings.run);
   const isQuery = useMatch(ROUTES.query) !== null;
+  const isFetchXml = useMatch(ROUTES.fetchxml) !== null;
 
   const [addOpen, setAddOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
@@ -57,7 +60,14 @@ export function RootLayout() {
       if (matchesBinding(e, runBindings)) {
         e.preventDefault();
         e.stopPropagation();
-        run();
+        // The FetchXML tool runs its own query; elsewhere Run means the SQL tool.
+        if (isFetchXml) void useFetchXml.getState().run();
+        else run();
+      } else if (isFetchXml && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s") {
+        // The FetchXML tool saves to a .xml file (Shift = Save as), not a SQL tab.
+        e.preventDefault();
+        e.stopPropagation();
+        void useFetchXml.getState().save(e.shiftKey);
       } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
         e.stopPropagation();
@@ -66,7 +76,7 @@ export function RootLayout() {
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [run, runBindings, saveActiveTab]);
+  }, [run, runBindings, saveActiveTab, isFetchXml]);
 
   const outletContext: LayoutContext = {
     openDiscover: () => setEnvOpen(true),
@@ -106,6 +116,8 @@ export function RootLayout() {
       <CloseTabConfirmModal />
       {/* After the project modal, so it stacks on top when opened from there. */}
       <SignOutConfirmModal />
+      {/* Last: an expired sign-in can interrupt anything, dialogs included. */}
+      <ReauthModal />
       <Toasts />
     </div>
   );

@@ -43,6 +43,8 @@ webbrowser = "1"
 # In-app updates from GitHub Releases (signed; see .github/workflows/release.yml).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+# Open / Save file dialogs (FetchXML files), called from Rust only.
+tauri-plugin-dialog = "2"
 
 [profile.release]
 opt-level = "s"

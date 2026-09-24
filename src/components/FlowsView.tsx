@@ -124,7 +124,7 @@ export function FlowsView() {
   const filtered = !!(filter.trim() || owner || solution);
 
   return (
-    <div className="grid h-full grid-cols-[340px_1fr]">
+    <div className="grid h-full grid-cols-[clamp(300px,28vw,340px)_minmax(0,1fr)]">
       {/* Flow list */}
       <div className="flex min-h-0 flex-col border-r border-line bg-s1">
         <div className="flex items-center gap-2 px-3 pt-3">
@@ -520,7 +520,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
 
   return (
     <div className="fade-in flex h-full min-h-0 flex-col">
-      <div className={`shrink-0 px-8 pb-5 ${trail.length ? "pt-3" : "pt-7"}`}>
+      <div className={`shrink-0 px-6 pb-5 xl:px-8 short:pb-3 ${trail.length ? "pt-3" : "pt-7 short:pt-4"}`}>
         {trail.length > 0 && (
           <nav className="mb-2 flex min-w-0 flex-wrap items-center gap-1 text-xs text-subtle" aria-label="Opened from">
             <button
@@ -553,11 +553,13 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold tracking-tight">{flow.name || "(no name)"}</h2>
+              <h2 className="line-clamp-2 min-w-0 text-lg font-semibold tracking-tight [overflow-wrap:anywhere]" title={flow.name}>
+                {flow.name || "(no name)"}
+              </h2>
               <span className={`badge badge-dot ${stateBadge(flow)}`}>{flow.state === 1 ? "On" : flow.stateLabel}</span>
               <span className="badge badge-neutral">{flow.managed ? "managed" : "unmanaged"}</span>
             </div>
-            <p className="mt-0.5 text-sm text-muted">
+            <p className="mt-0.5 text-sm text-muted short:truncate">
               {flow.owner || "Unknown owner"} · modified {time(flow.modifiedOn)}
               {flow.modifiedBy && ` by ${flow.modifiedBy}`}
             </p>
@@ -572,7 +574,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
           </div>
         </div>
 
-        {flow.description && <p className="mt-3 max-w-3xl text-sm text-muted">{flow.description}</p>}
+        {flow.description && <p className="mt-3 line-clamp-3 max-w-3xl text-sm text-muted short:line-clamp-1" title={flow.description}>{flow.description}</p>}
 
         {(flow.solutions.length > 0 || children.length > 0 || callable || !!callers?.length) && (
           <div className="mt-3 space-y-1.5">
@@ -634,7 +636,8 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
           </div>
         )}
 
-        <div className="card mt-5 grid grid-cols-3 divide-x divide-line">
+        {/* A short window needs the room for the designer, which shows all of this too. */}
+        <div className="card mt-5 grid grid-cols-3 divide-x divide-line short:hidden">
           <Stat label="Trigger">
             {pending ? (
               <div className="skeleton mt-1 h-3 w-32" />
@@ -738,7 +741,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
               </div>
             )}
             {/* Kept mounted (hidden) so the editor keeps its state. */}
-            <div className={`${tab === "json" ? "" : "hidden"} h-full ${outline ? "grid grid-cols-[minmax(240px,300px)_1fr]" : ""}`}>
+            <div className={`${tab === "json" ? "" : "hidden"} h-full ${outline ? "grid grid-cols-[clamp(200px,30%,300px)_minmax(0,1fr)]" : ""}`}>
               {outline && (
                 <div className="min-h-0 border-r border-line bg-s1">
                   <FlowOutline

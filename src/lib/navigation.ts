@@ -7,6 +7,7 @@ export const ROUTES = {
   schema: "/sql/schema",
   history: "/sql/history",
   flows: "/flows",
+  fetchxml: "/fetchxml",
 } as const;
 
 /** A flow in the Flows tool; the id is the `workflow` row's id. */

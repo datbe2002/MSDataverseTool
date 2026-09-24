@@ -191,3 +191,66 @@ export interface FlowCall {
   parent: string;
   child: string;
 }
+
+/** One page of a FetchXML query (`run_fetchxml`). */
+export interface FetchPage {
+  /** Rows as the Web API returned them, annotations included. */
+  records: Record<string, unknown>[];
+  moreRecords: boolean;
+  /** For the next page's `paging-cookie` attribute (decoded, not XML-escaped). */
+  pagingCookie: string | null;
+  elapsedMs: number;
+  /** Response size after decompression. */
+  bytes: number;
+  /** Times the server asked us to slow down (429 / 503). */
+  throttled: number;
+}
+
+/** A way to join a table (`list_relationships`), as `<link-entity>` attributes. */
+export interface Relationship {
+  kind: "manyToOne" | "oneToMany" | "manyToMany";
+  schemaName: string;
+  /** Joined table (`name`); for N:N the table on the other side. */
+  table: string;
+  /** Column on `table` (`from`). */
+  from: string;
+  /** Column on the queried table (`to`); for N:N its key. */
+  to: string;
+  /** N:N: the intersect table, joined first (from = intersectFrom, to = to), then `table` (from = from, to = intersectTo). */
+  intersect?: string;
+  intersectFrom?: string;
+  intersectTo?: string;
+}
+
+/** A saved view of a table (`list_views`): system (`savedquery`) or personal (`userquery`). */
+export interface SavedView {
+  id: string;
+  name: string;
+  personal: boolean;
+  queryType: number;
+  /** "Public", "Advanced Find", "Lookup", "Personal", … */
+  typeLabel: string;
+  isDefault: boolean;
+  description?: string;
+  fetchXml: string;
+}
+
+export interface ViewList {
+  views: SavedView[];
+  /** Personal views couldn't be read (system views still listed). */
+  personalError: string | null;
+}
+
+/** A FetchXML file opened / saved on this computer. */
+export interface XmlFile {
+  path: string;
+  name: string;
+  /** Only when opening. */
+  contents?: string;
+}
+
+/** A table's key and name columns (`table_keys`). */
+export interface TableKeys {
+  primaryId: string;
+  primaryName: string | null;
+}

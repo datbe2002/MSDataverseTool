@@ -164,6 +164,14 @@ export const Code = (p: IconProps) => (
   </svg>
 );
 
+export const FileCode = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <path d="M14 3v5h5" />
+    <path d="m10 12-2 2 2 2M14 12l2 2-2 2" />
+  </svg>
+);
+
 export const Flow = (p: IconProps) => (
   <svg {...base(p)}>
     <rect x="3" y="3" width="6" height="6" rx="1.5" />

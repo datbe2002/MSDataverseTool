@@ -10,6 +10,7 @@ import {
   Clock,
   Loader,
   Flow,
+  FileCode,
   AlertTriangle,
   PanelLeftClose,
   PanelLeftOpen,
@@ -33,6 +34,10 @@ const NAV: { tool: string; items: { to: string; label: string; icon: typeof Layo
       { to: ROUTES.schema, label: "Schema", icon: Table },
       { to: ROUTES.history, label: "History", icon: Clock },
     ],
+  },
+  {
+    tool: "FetchXML",
+    items: [{ to: ROUTES.fetchxml, label: "Builder", icon: FileCode }],
   },
   {
     tool: "Power Automate",

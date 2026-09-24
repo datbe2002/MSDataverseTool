@@ -222,7 +222,8 @@ interface AppStore {
   setEngineMode: (mode: EngineMode) => void;
   setHasSelection: (has: boolean) => void;
   init: () => Promise<void>;
-  signIn: (projectId?: string) => Promise<void>;
+  /** Resolves true once signed in. */
+  signIn: (projectId?: string) => Promise<boolean>;
   signOut: (projectId?: string) => Promise<void>;
   /** Stop waiting for the browser (its sign-in tab was closed, …). */
   cancelSignIn: () => void;
@@ -443,7 +444,7 @@ export const useStore = create<AppStore>((set, get) => {
           title: "No project selected",
           body: "Create a project first, then sign in to it.",
         });
-        return;
+        return false;
       }
       const attempt = ++signInAttempt;
       set({ signingIn: true, authError: null });
@@ -451,10 +452,12 @@ export const useStore = create<AppStore>((set, get) => {
         const project = await api.signIn(id);
         set((s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }));
         if (id === get().activeProjectId) await get().loadEnvironments();
+        return true;
       } catch (e) {
         // Cancelling (or a newer attempt replacing this one) isn't a failure.
         const cancelled = String(e).includes(SIGN_IN_CANCELLED);
         if (!cancelled && attempt === signInAttempt) set({ authError: friendlyError(String(e)) });
+        return false;
       } finally {
         if (attempt === signInAttempt) set({ signingIn: false });
       }

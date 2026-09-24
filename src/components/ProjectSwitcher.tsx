@@ -43,15 +43,16 @@ export function ProjectSwitcher({ onAdd, onEdit }: Props) {
   }, [open]);
 
   return (
-    <div className="relative min-w-0" ref={ref}>
+    // Gives way before the connection name when the bar is narrow.
+    <div className="relative min-w-0 shrink-[3]" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex h-8 min-w-0 items-center gap-2 rounded-md px-2 transition hover:bg-s3"
+        className="flex h-8 min-w-0 max-w-full items-center gap-2 rounded-md px-2 transition hover:bg-s3"
         title="Switch project"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <Folder size={15} className={active ? tagStyle(active.color).text : "text-subtle"} />
+        <Folder size={15} className={`shrink-0 ${active ? tagStyle(active.color).text : "text-subtle"}`} />
         <span className="truncate text-sm font-medium text-muted">
           {active ? active.name : "No project"}
         </span>

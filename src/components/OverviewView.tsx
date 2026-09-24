@@ -23,17 +23,17 @@ function greeting() {
 export function StatusBadge({ entry }: { entry: HistoryEntry }) {
   if (entry.status === "ok")
     return (
-      <span className="badge badge-success badge-dot">
+      <span className="badge badge-success">
         {(entry.rows ?? 0).toLocaleString()} rows
       </span>
     );
   if (entry.status === "write")
     return (
-      <span className="badge badge-info badge-dot">
+      <span className="badge badge-info">
         {(entry.rows ?? 0).toLocaleString()} written
       </span>
     );
-  return <span className="badge badge-danger badge-dot">Failed</span>;
+  return <span className="badge badge-danger">Failed</span>;
 }
 
 export function OverviewView({ onDiscover, onAdd, onEdit }: Props) {
@@ -147,7 +147,7 @@ export function OverviewView({ onDiscover, onAdd, onEdit }: Props) {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          <div className="card lg:col-span-2">
+          <div className="card min-w-0 lg:col-span-2">
             <div className="card-header">
               <h2 className="card-title">Recent queries</h2>
               <button className="btn btn-ghost btn-sm" onClick={() => navigate(ROUTES.history)}>
@@ -174,7 +174,7 @@ export function OverviewView({ onDiscover, onAdd, onEdit }: Props) {
                     <code className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
                       {h.sql.replace(/\s+/g, " ").trim()}
                     </code>
-                    <span className="hidden text-xs text-subtle sm:inline">{h.connectionName}</span>
+                    <span className="hidden max-w-[35%] shrink-0 truncate text-xs text-subtle sm:inline">{h.connectionName}</span>
                     <StatusBadge entry={h} />
                     <span className="w-14 text-right text-xs tabular-nums text-subtle">
                       {formatMs(h.ms)}
@@ -185,7 +185,7 @@ export function OverviewView({ onDiscover, onAdd, onEdit }: Props) {
             )}
           </div>
 
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-6">
             <div className="card">
               <div className="card-header">
                 <h2 className="card-title">Environments</h2>

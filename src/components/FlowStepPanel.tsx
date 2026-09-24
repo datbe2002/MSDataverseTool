@@ -145,7 +145,11 @@ export function FlowStepPanel({
   };
 
   return (
-    <aside className="flex h-full min-h-0 w-[400px] shrink-0 flex-col border-l border-line bg-s1" aria-label={`Step ${step.name}`}>
+    // Beside the canvas; over it when the designer is narrow, so the canvas keeps its width.
+    <aside
+      className="flex h-full min-h-0 w-[400px] shrink-0 flex-col border-l border-line bg-s1 @max-3xl/designer:absolute @max-3xl/designer:inset-y-0 @max-3xl/designer:right-0 @max-3xl/designer:z-10 @max-3xl/designer:w-[min(400px,calc(100%-40px))] @max-3xl/designer:shadow-lg"
+      aria-label={`Step ${step.name}`}
+    >
       <div className="flex shrink-0 items-start gap-3 border-b border-line px-4 py-3">
         <StepIcon step={step} size={34} />
         <div className="min-w-0 flex-1">

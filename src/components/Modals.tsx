@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore, activeProjectOf } from "../store";
-import { X, Compass, Loader, Plus, Database, AlertTriangle, Pencil, Check, Folder, Trash, LogOut } from "./Icon";
+import { X, Compass, Loader, Plus, Database, AlertTriangle, Pencil, Check, Folder, Trash, LogIn, LogOut } from "./Icon";
 import { TAG_COLORS, TAG_PRESETS, tagStyle } from "../lib/tags";
 import { comboFromEvent, formatCombo, isValidBinding, DEFAULT_KEYS } from "../lib/keys";
 import { TagBadge } from "./TagBadge";
 import { useUpdater } from "../lib/updater";
+import { useReauth } from "../lib/reauth";
 import { tabTitle } from "../lib/tabs";
 import type { Connection, Project } from "../types";
 
 /* ---------- shared shell ---------- */
 
-function Modal({
+export function Modal({
   title,
   icon,
   onClose,
@@ -47,10 +48,10 @@ function Modal({
       aria-label={title}
     >
       <div
-        className={`modal-in popover w-full ${width} overflow-hidden !rounded-xl`}
+        className={`modal-in popover flex max-h-full w-full ${width} flex-col overflow-hidden !rounded-xl`}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-3 border-b border-line px-5 py-3">
+        <div className="flex shrink-0 items-center gap-3 border-b border-line px-5 py-3">
           {icon && (
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-s3 ring-1 ring-inset ring-line">
               {icon}
@@ -61,7 +62,8 @@ function Modal({
             <X size={15} />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        {/* Taller than the window: the body scrolls, the footer (.modal-footer) stays at the bottom. */}
+        <div className="min-h-0 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );
@@ -1020,6 +1022,72 @@ export function SignOutConfirmModal() {
           <button onClick={confirm} disabled={busy} className="btn btn-danger">
             {busy ? <Loader size={14} /> : <LogOut size={14} />}
             Sign out
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------- Sign in again (expired sign-in) ---------- */
+
+/** Asked for by lib/reauth when a command's sign-in has expired; the command reruns after. */
+export function ReauthModal() {
+  const request = useReauth((s) => s.request);
+  const settle = useReauth((s) => s.settle);
+  const project = useStore((s) => (request ? s.projects.find((p) => p.id === request.projectId) ?? null : null));
+  const signIn = useStore((s) => s.signIn);
+  const signingIn = useStore((s) => s.signingIn);
+  const cancelSignIn = useStore((s) => s.cancelSignIn);
+  const authError = useStore((s) => s.authError);
+  if (!request) return null;
+  // No stored sign-in at all (signed out, or never signed in) rather than an expired one.
+  const signedOut = request.reason === "Not signed in" || !project?.username;
+
+  const start = async () => {
+    if (await signIn(request.projectId)) settle(true);
+  };
+  const giveUp = () => {
+    if (signingIn) cancelSignIn();
+    settle(false);
+  };
+
+  return (
+    <Modal title="Sign in again" icon={<LogIn size={15} className="text-brand" />} onClose={giveUp} width="max-w-md">
+      <div className="space-y-4">
+        {signedOut ? (
+          <p className="text-sm leading-relaxed text-muted">
+            You're not signed in to <span className="font-medium text-fg">{project?.name ?? "this project"}</span>. Sign in
+            to carry on — what you were doing continues right after.
+          </p>
+        ) : (
+          <p className="text-sm leading-relaxed text-muted">
+            Your sign-in to <span className="font-medium text-fg">{project?.name ?? "this project"}</span>
+            {project?.username && <> as <span className="font-medium text-fg">{project.username}</span></>} has expired.
+            Sign in again to carry on — what you were doing continues right after.
+          </p>
+        )}
+        {request.reason && !signedOut && (
+          <p className="rounded-lg border border-line bg-s2 px-3 py-2 text-xs text-subtle [overflow-wrap:anywhere]">{request.reason}</p>
+        )}
+        {signingIn && (
+          <div className="flex items-center gap-2 text-sm" role="status">
+            <Loader size={14} className="text-brand" /> Finish signing in in your browser…
+          </div>
+        )}
+        {authError && !signingIn && (
+          <p className="text-xs text-danger" role="alert">
+            {authError}
+          </p>
+        )}
+
+        <div className="modal-footer">
+          <button onClick={giveUp} className="btn btn-ghost">
+            {signingIn ? "Cancel" : "Not now"}
+          </button>
+          <button onClick={start} disabled={signingIn} className="btn btn-primary" autoFocus>
+            {signingIn ? <Loader size={14} /> : <LogIn size={14} />}
+            Sign in with Microsoft
           </button>
         </div>
       </div>
