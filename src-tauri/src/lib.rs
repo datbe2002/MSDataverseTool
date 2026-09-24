@@ -11,6 +11,7 @@ mod http;
 mod metadata;
 mod project;
 mod sql;
+mod update;
 mod views;
 
 use error::{AppError, AppResult};
@@ -804,6 +805,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        .manage(update::UpdateState::default())
         .setup(|_app| {
             // Wraps a pre-projects install (one account + its connections)
             // into a first project.
@@ -842,7 +844,10 @@ pub fn run() {
             execute_dml,
             discard_dml,
             get_settings,
-            set_settings
+            set_settings,
+            update::check_update,
+            update::download_update,
+            update::install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hexa Studio");

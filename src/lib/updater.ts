@@ -2,9 +2,17 @@
 // background, download a newer signed installer quietly, then offer
 // "Restart to update". The feed (latest.json) and signatures are made by
 // .github/workflows/release.yml; the public key is in tauri.conf.json.
+// The download runs in Rust (src-tauri/src/update.rs): the plugin's JS
+// download sends one message per network chunk and crawls.
 import { create } from "zustand";
 import { getVersion } from "@tauri-apps/api/app";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
+interface UpdateInfo {
+  version: string;
+  notes: string | null;
+}
 
 export type UpdateStatus =
   | "idle"
@@ -32,8 +40,6 @@ interface UpdaterStore {
   install: () => Promise<void>;
 }
 
-let pending: Update | null = null;
-
 export const useUpdater = create<UpdaterStore>((set, get) => ({
   currentVersion: null,
   status: "idle",
@@ -49,23 +55,19 @@ export const useUpdater = create<UpdaterStore>((set, get) => ({
     if (status === "checking" || status === "downloading" || status === "ready" || status === "installing") return;
     set({ status: "checking", error: null });
     try {
-      const update = await check();
+      const update = await invoke<UpdateInfo | null>("check_update");
       set({ checkedAt: Date.now() });
       if (!update) {
         set({ status: "upToDate" });
         return;
       }
-      set({ status: "downloading", version: update.version, notes: update.body ?? null, progress: null });
-      let total = 0;
-      let done = 0;
-      await update.download((e) => {
-        if (e.event === "Started") total = e.data.contentLength ?? 0;
-        else if (e.event === "Progress") {
-          done += e.data.chunkLength;
-          if (total > 0) set({ progress: Math.min(1, done / total) });
-        }
-      });
-      pending = update;
+      set({ status: "downloading", version: update.version, notes: update.notes, progress: null });
+      const unlisten = await listen<number>("update-progress", (e) => set({ progress: e.payload }));
+      try {
+        await invoke("download_update");
+      } finally {
+        unlisten();
+      }
       set({ status: "ready", progress: 1 });
     } catch (e) {
       set({ status: "error", error: String(e) });
@@ -73,10 +75,10 @@ export const useUpdater = create<UpdaterStore>((set, get) => ({
   },
 
   install: async () => {
-    if (!pending) return;
+    if (get().status !== "ready") return;
     set({ status: "installing", error: null });
     try {
-      await pending.install();
+      await invoke("install_update");
     } catch (e) {
       set({ status: "ready", error: String(e) });
     }
