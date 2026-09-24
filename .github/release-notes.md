@@ -1,3 +1,11 @@
+### What's new in 0.3.0
+- **FetchXML Builder** — a new tool in the sidebar (FetchXML → Builder):
+  - Write FetchXML with autocomplete for tables, columns, operators and choice values — or build it with a **tree + properties panel** (column pickers, joins from the table's relationships, conditions with operators that fit the column).
+  - **Checks** the query against the environment's tables and columns before it runs (missing columns, wrong operators, aggregate rules, …).
+  - Results grid with **Formatted / Raw / JSON** values, **Next page / Load all**, **Count rows** (without reading them), and **Export** to CSV / JSON.
+  - Open **system and personal views** (read only) and **.xml files**; several tabs per environment.
+- An expired sign-in now asks once to sign in again and then retries what you were doing.
+
 ### Download
 Download **`Hexa.Studio_*_x64-setup.exe`** below and run it — it installs for your user only, no admin rights needed.
 
