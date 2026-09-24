@@ -1,7 +1,7 @@
 {
   "name": "hexa-studio",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "A modern, friendly tool to connect to Power Platform / Dataverse environments and run SQL against the CDS TDS endpoint.",
   "scripts": {
