@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useMatch } from "react-router";
 import { useStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { QueryView } from "./components/QueryView";
 import { Toasts } from "./components/Toasts";
+import { SettingsModal, type SettingsSection } from "./components/SettingsDialog";
+import { CommandPalette, usePaletteShortcut, type PaletteOpeners } from "./components/CommandPalette";
 import {
   AddConnectionModal,
   CloseTabConfirmModal,
@@ -13,7 +15,6 @@ import {
   EnvironmentPickerModal,
   ProjectModal,
   ReauthModal,
-  SettingsModal,
   SignOutConfirmModal,
   SwitchConfirmModal,
 } from "./components/Modals";
@@ -41,10 +42,22 @@ export function RootLayout() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // null = closed; otherwise the section Settings opens at (undefined = the last one shown).
+  const [settingsOpen, setSettingsOpen] = useState<{ section?: SettingsSection } | null>(null);
   const [editing, setEditing] = useState<Connection | null>(null);
   // null = closed; { project: null } = create; { project } = edit
   const [projectModal, setProjectModal] = useState<{ project: Project | null } | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const togglePalette = useCallback(() => setPaletteOpen((o) => !o), []);
+  usePaletteShortcut(togglePalette);
+  const paletteOpeners = useMemo<PaletteOpeners>(
+    () => ({
+      openSettings: (section) => setSettingsOpen({ section }),
+      openDiscover: () => setEnvOpen(true),
+      openAdd: () => setAddOpen(true),
+    }),
+    []
+  );
 
   useEffect(() => {
     init();
@@ -86,7 +99,7 @@ export function RootLayout() {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-bg text-fg">
-      <Sidebar onSettings={() => setSettingsOpen(true)} />
+      <Sidebar onSettings={() => setSettingsOpen({})} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
           onEdit={setEditing}
@@ -94,6 +107,7 @@ export function RootLayout() {
           onDiscover={() => setEnvOpen(true)}
           onAddProject={() => setProjectModal({ project: null })}
           onEditProject={(project) => setProjectModal({ project })}
+          onPalette={() => setPaletteOpen(true)}
         />
         <main className="min-h-0 flex-1 overflow-hidden">
           {/* Stays mounted (hidden) in every tool so the editor keeps its state. */}
@@ -106,11 +120,12 @@ export function RootLayout() {
 
       {addOpen && <AddConnectionModal onClose={() => setAddOpen(false)} />}
       {envOpen && <EnvironmentPickerModal onClose={() => setEnvOpen(false)} />}
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsModal section={settingsOpen.section} onClose={() => setSettingsOpen(null)} />}
       {editing && <EditConnectionModal connection={editing} onClose={() => setEditing(null)} />}
       {projectModal && (
         <ProjectModal project={projectModal.project} onClose={() => setProjectModal(null)} />
       )}
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} openers={paletteOpeners} />}
       <DmlConfirmModal />
       <SwitchConfirmModal />
       <CloseTabConfirmModal />

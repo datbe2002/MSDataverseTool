@@ -1,6 +1,17 @@
 import { invoke as tauriInvoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { withReauth } from "./lib/reauth";
 import type {
+  AccessCheck,
+  DependencyReport,
+  FlowMention,
+  PluginOverview,
+  PluginStep,
+  PluginStepDetail,
+  StepQuery,
+  RolePrivilege,
+  SecurityRole,
+  SecurityUser,
+  UserRoles,
   Cell,
   ColumnMeta,
   Connection,
@@ -11,6 +22,9 @@ import type {
   FetchPage,
   FlowCall,
   FlowList,
+  JobDetail,
+  JobFilter,
+  JobPage,
   Project,
   QueryResult,
   Relationship,
@@ -18,6 +32,9 @@ import type {
   TableChoices,
   TableKeys,
   TableMeta,
+  TraceDetail,
+  TraceFilter,
+  TracePage,
   ViewList,
   XmlFile,
 } from "./types";
@@ -103,6 +120,41 @@ export const api = {
   /** One page of a FetchXML query; `entity` is its root `<entity name>`. */
   runFetchXml: (connectionId: string, entity: string, fetchXml: string) =>
     invoke<FetchPage>("run_fetchxml", { connectionId, entity, fetchXml }),
+
+  /** A page of plug-in trace logs, newest first; `next` = the previous page's link. */
+  traceLogs: (connectionId: string, filter: TraceFilter, next: string | null) =>
+    invoke<TracePage>("trace_logs", { connectionId, filter, next }),
+  /** One trace log with its full trace text and exception. */
+  traceLog: (connectionId: string, id: string) => invoke<TraceDetail>("trace_log", { connectionId, id }),
+
+  /** A page of system jobs, newest first; `next` = the previous page's link. */
+  systemJobs: (connectionId: string, filter: JobFilter, next: string | null) =>
+    invoke<JobPage>("system_jobs", { connectionId, filter, next }),
+  /** One system job with its full messages. */
+  systemJob: (connectionId: string, id: string) => invoke<JobDetail>("system_job", { connectionId, id }),
+  /** Opens a record of the environment in the browser. */
+  openRecord: (connectionId: string, table: string, id: string) =>
+    invoke<void>("open_record", { connectionId, table, id }),
+
+  /** Plug-in assemblies, types, service endpoints and a slim index of every step. */
+  pluginOverview: (connectionId: string, hideMicrosoft: boolean) =>
+    invoke<PluginOverview>("plugin_overview", { connectionId, hideMicrosoft }),
+  /** Steps of one handler, one table, or matching a search. */
+  pluginSteps: (connectionId: string, query: StepQuery) => invoke<PluginStep[]>("plugin_steps", { connectionId, query }),
+  /** One step in full, with its images. */
+  pluginStep: (connectionId: string, id: string) => invoke<PluginStepDetail>("plugin_step", { connectionId, id }),
+  /** What depends on a table or column; `forDelete`: only what blocks deleting it. */
+  componentDependencies: (connectionId: string, table: string, column: string | null, forDelete: boolean) =>
+    invoke<DependencyReport>("component_dependencies", { connectionId, table, column, forDelete }),
+  /** Cloud flows whose definition names the table (and column). Reads every definition. */
+  flowsMentioning: (connectionId: string, table: string, column: string | null) =>
+    invoke<FlowMention[]>("flows_mentioning", { connectionId, table, column }),
+  securityUsers: (connectionId: string) => invoke<SecurityUser[]>("security_users", { connectionId }),
+  securityRoles: (connectionId: string) => invoke<SecurityRole[]>("security_roles", { connectionId }),
+  userRoles: (connectionId: string, userId: string) => invoke<UserRoles>("user_roles", { connectionId, userId }),
+  rolePrivileges: (connectionId: string, roleId: string) => invoke<RolePrivilege[]>("role_privileges", { connectionId, roleId }),
+  principalAccess: (connectionId: string, userId: string, table: string, recordId: string) =>
+    invoke<AccessCheck>("principal_access", { connectionId, userId, table, recordId }),
 
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (clientId: string, tenant: string, workerThreads: number) =>

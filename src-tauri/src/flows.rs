@@ -49,23 +49,6 @@ pub struct FlowList {
     pub solutions_error: Option<String>,
 }
 
-/// Every row of a collection query, following `@odata.nextLink`.
-fn get_all(first_url: String, token: &str) -> AppResult<Vec<Value>> {
-    let mut rows = Vec::new();
-    let mut next = Some(first_url);
-    while let Some(url) = next.take() {
-        let mut body = get_json(&url, token, Some(PREFER_ALL_PAGES))?;
-        if let Some(Value::Array(page)) = body.get_mut("value").map(Value::take) {
-            rows.extend(page);
-        }
-        next = body
-            .get("@odata.nextLink")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-    }
-    Ok(rows)
-}
-
 fn str_field(row: &Value, key: &str) -> String {
     row.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
 }
@@ -140,14 +123,14 @@ pub fn list(host: &str, token: &str) -> AppResult<FlowList> {
         host, CATEGORY_CLOUD_FLOW
     )
     .replace(' ', "%20");
-    let mut flows: Vec<FlowMeta> = get_all(url, token)?.iter().filter_map(parse_flow).collect();
+    let mut flows: Vec<FlowMeta> = crate::odata::get_all(url, token, PREFER_ALL_PAGES)?.iter().filter_map(parse_flow).collect();
 
     let url = format!(
         "https://{}/api/data/v9.2/solutioncomponents?$select=objectid&$filter=componenttype eq {}&$expand=solutionid($select=friendlyname,uniquename,isvisible)",
         host, COMPONENT_WORKFLOW
     )
     .replace(' ', "%20");
-    let solutions_error = match get_all(url, token) {
+    let solutions_error = match crate::odata::get_all(url, token, PREFER_ALL_PAGES) {
         Ok(rows) => {
             let map = parse_solution_components(&rows);
             for flow in &mut flows {
@@ -197,7 +180,7 @@ pub fn calls(host: &str, token: &str) -> AppResult<Vec<FlowCall>> {
     )
     .replace(' ', "%20");
     let mut out = Vec::new();
-    for row in get_all(url, token)? {
+    for row in crate::odata::get_all(url, token, PREFER_ALL_PAGES)? {
         let (Some(parent), Some(data)) = (
             row.get("workflowid").and_then(|v| v.as_str()),
             row.get("clientdata").and_then(|v| v.as_str()),

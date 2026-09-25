@@ -6,7 +6,7 @@ import { splitStatements } from "../lib/sqlStatements";
 import { useFetchXml, activeRunOf } from "../lib/fetchXmlStore";
 import { ConnectionSwitcher } from "./ConnectionSwitcher";
 import { ProjectSwitcher } from "./ProjectSwitcher";
-import { Play, Loader, Sun, Moon } from "./Icon";
+import { Play, Loader, Sun, Moon, Search } from "./Icon";
 import type { Connection, Project } from "../types";
 
 interface Props {
@@ -15,9 +15,11 @@ interface Props {
   onDiscover: () => void;
   onAddProject: () => void;
   onEditProject: (p: Project) => void;
+  /** Opens the command palette. */
+  onPalette: () => void;
 }
 
-export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject }: Props) {
+export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject, onPalette }: Props) {
   const isQuery = useMatch(ROUTES.query) !== null;
   const isFetchXml = useMatch(ROUTES.fetchxml) !== null;
   const theme = useStore((s) => s.theme);
@@ -52,6 +54,17 @@ export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject 
         <ConnectionSwitcher onEdit={onEdit} onAdd={onAdd} onDiscover={onDiscover} />
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          <button
+            onClick={onPalette}
+            className="btn btn-secondary !h-8 gap-2 !px-2.5 text-subtle"
+            title="Search views, actions, tables, flows and past queries (Ctrl+K)"
+            aria-label="Open the command palette"
+            aria-keyshortcuts="Control+K"
+          >
+            <Search size={14} />
+            <span className="hidden text-[12.5px] lg:inline">Search</span>
+            <span className="kbd hidden lg:inline-flex">Ctrl K</span>
+          </button>
           <button
             onClick={toggleTheme}
             className="btn btn-ghost btn-icon"

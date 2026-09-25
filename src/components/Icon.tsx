@@ -259,3 +259,63 @@ export const Moon = (p: IconProps) => (
     <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
   </svg>
 );
+
+export const Bug = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="7" y="8" width="10" height="12" rx="5" />
+    <path d="M9 8V7a3 3 0 0 1 6 0v1M12 12v8M3 13h4M17 13h4M4 7l3 2.5M20 7l-3 2.5M4 20l3-2.5M20 20l-3-2.5" />
+  </svg>
+);
+
+export const CornerDownLeft = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M9 10l-5 5 5 5" />
+    <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+  </svg>
+);
+
+export const Keyboard = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2" y="5" width="20" height="14" rx="2.5" />
+    <path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M18 12h.01M10 12h4M7 15h10" />
+  </svg>
+);
+
+export const Key = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="7.5" cy="15.5" r="4.5" />
+    <path d="m10.7 12.3 9.3-9.3M16 7l3 3M18 5l2 2" />
+  </svg>
+);
+
+export const Minus = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M5 12h14" />
+  </svg>
+);
+
+export const Activity = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M22 12h-4l-3 8L9 4l-3 8H2" />
+  </svg>
+);
+
+export const Plug = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4" />
+  </svg>
+);
+
+export const Link = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+    <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+  </svg>
+);
+
+export const Shield = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+);

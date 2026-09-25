@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { useStore } from "../store";
 import { columnKey, useSchema } from "../lib/schema";
 import { Search, Refresh, Copy, Table } from "./Icon";
@@ -14,7 +15,11 @@ export function SchemaView() {
 
   const [filter, setFilter] = useState("");
   const [kind, setKind] = useState<"all" | "standard" | "custom">("all");
-  const [selected, setSelected] = useState<string | null>(null);
+  // The picked table lives in the URL (?table=), so the command palette can open one.
+  const [params, setParams] = useSearchParams();
+  const selected = params.get("table")?.toLowerCase() || null;
+  const setSelected = (table: string) => setParams({ table }, { replace: true });
+  const listRef = useRef<HTMLUListElement>(null);
   const columns = useSchema((s) =>
     activeId && selected ? s.columns[columnKey(activeId, selected)] : undefined
   );
@@ -43,6 +48,11 @@ export function SchemaView() {
   }, [tables, filter, kind]);
 
   const table = tables?.find((t) => t.logicalName === selected);
+
+  // Opened at a table (from the palette): it may be far down the list.
+  useEffect(() => {
+    listRef.current?.querySelector('[role="option"][aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [selected, tables]);
 
   const reload = () => {
     if (!activeId) return;
@@ -96,7 +106,7 @@ export function SchemaView() {
             </button>
           ))}
         </div>
-        <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" role="listbox" aria-label="Tables">
+        <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" role="listbox" aria-label="Tables">
           {status === "loading" || !tables ? (
             status === "error" ? (
               <li className="px-3 py-8 text-center text-xs text-subtle">

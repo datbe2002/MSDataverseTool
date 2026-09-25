@@ -6,6 +6,11 @@ import { SchemaView } from "./components/SchemaView";
 import { HistoryView } from "./components/HistoryView";
 import { FlowsView } from "./components/FlowsView";
 import { FetchXmlView } from "./components/FetchXmlView";
+import { TracesView } from "./components/TracesView";
+import { JobsView } from "./components/JobsView";
+import { PluginsView } from "./components/PluginsView";
+import { DependenciesView } from "./components/DependenciesView";
+import { SecurityView } from "./components/SecurityView";
 import { ROUTES, setNavigator } from "./lib/navigation";
 
 function OverviewRoute() {
@@ -34,6 +39,11 @@ export const router = createHashRouter([
       },
       { path: "flows/:flowId?", element: <FlowsView /> },
       { path: "fetchxml", element: <FetchXmlView /> },
+      { path: "traces/:traceId?", element: <TracesView /> },
+      { path: "jobs/:jobId?", element: <JobsView /> },
+      { path: "plugins", element: <PluginsView /> },
+      { path: "dependencies", element: <DependenciesView /> },
+      { path: "security/:tab?", element: <SecurityView /> },
       { path: "*", element: <Navigate to={ROUTES.overview} replace /> },
     ],
   },

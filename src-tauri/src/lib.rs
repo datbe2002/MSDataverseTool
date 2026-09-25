@@ -2,15 +2,21 @@ mod auth;
 mod config;
 mod connection;
 mod discovery;
+mod deps;
 mod dml;
 mod engine;
 mod error;
 mod fetchxml;
 mod flows;
 mod http;
+mod jobs;
 mod metadata;
+mod odata;
+mod plugins;
 mod project;
+mod security;
 mod sql;
+mod traces;
 mod update;
 mod views;
 
@@ -503,6 +509,176 @@ async fn list_relationships(
         .map_err(AppError::msg)?
 }
 
+/// A page of plug-in trace logs, newest first (`next`: link from the previous page).
+#[tauri::command]
+async fn trace_logs(
+    state: State<'_, AppState>,
+    connection_id: String,
+    filter: traces::TraceFilter,
+    next: Option<String>,
+) -> AppResult<traces::TracePage> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || traces::list(&host, &token, &filter, next.as_deref()))
+        .await
+        .map_err(AppError::msg)?
+}
+
+/// One plug-in trace log with its trace text and exception.
+#[tauri::command]
+async fn trace_log(
+    state: State<'_, AppState>,
+    connection_id: String,
+    id: String,
+) -> AppResult<traces::TraceDetail> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || traces::detail(&host, &token, &id))
+        .await
+        .map_err(AppError::msg)?
+}
+
+/// A page of system jobs (`asyncoperation`), newest first (`next`: link from the previous page).
+#[tauri::command]
+async fn system_jobs(
+    state: State<'_, AppState>,
+    connection_id: String,
+    filter: jobs::JobFilter,
+    next: Option<String>,
+) -> AppResult<jobs::JobPage> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || jobs::list(&host, &token, &filter, next.as_deref()))
+        .await
+        .map_err(AppError::msg)?
+}
+
+/// One system job with its full messages.
+#[tauri::command]
+async fn system_job(
+    state: State<'_, AppState>,
+    connection_id: String,
+    id: String,
+) -> AppResult<jobs::JobDetail> {
+    let (conn, project_id) = connection_project(&connection_id)?;
+    let token =
+        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || jobs::detail(&host, &token, &id))
+        .await
+        .map_err(AppError::msg)?
+}
+
+/// Opens a record of the connection's environment in the browser (model-driven app).
+#[tauri::command]
+fn open_record(connection_id: String, table: String, id: String) -> AppResult<()> {
+    let (conn, _) = connection_project(&connection_id)?;
+    let url = jobs::record_url(&conn.host, &table, &id)?;
+    webbrowser::open(&url)?;
+    Ok(())
+}
+
+/// Runs `f(host, token)` on a blocking thread with the connection's token.
+async fn on_env<T: Send + 'static>(
+    state: &AppState,
+    connection_id: &str,
+    f: impl FnOnce(&str, &str) -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    let (conn, project_id) = connection_project(connection_id)?;
+    let token = get_access_token(state, &project_id, &format!("https://{}", conn.host)).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || f(&host, &token)).await.map_err(AppError::msg)?
+}
+
+/// Plug-in assemblies, types, service endpoints and a slim index of every step.
+#[tauri::command]
+async fn plugin_overview(state: State<'_, AppState>, connection_id: String, hide_microsoft: bool) -> AppResult<plugins::Overview> {
+    on_env(state.inner(), &connection_id, move |host, token| plugins::overview(host, token, hide_microsoft)).await
+}
+
+/// Steps of one handler, one table, or matching a search.
+#[tauri::command]
+async fn plugin_steps(state: State<'_, AppState>, connection_id: String, query: plugins::StepQuery) -> AppResult<Vec<plugins::Step>> {
+    on_env(state.inner(), &connection_id, move |host, token| plugins::steps(host, token, &query)).await
+}
+
+/// One step in full, with its images.
+#[tauri::command]
+async fn plugin_step(state: State<'_, AppState>, connection_id: String, id: String) -> AppResult<plugins::StepDetail> {
+    on_env(state.inner(), &connection_id, move |host, token| plugins::step(host, token, &id)).await
+}
+
+/// What depends on a table or column; `for_delete`: only what blocks deleting it.
+#[tauri::command]
+async fn component_dependencies(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+    column: Option<String>,
+    for_delete: bool,
+) -> AppResult<deps::Report> {
+    on_env(state.inner(), &connection_id, move |host, token| {
+        deps::report(host, token, &table, column.as_deref(), for_delete)
+    })
+    .await
+}
+
+/// Cloud flows whose definition names the table (and column).
+#[tauri::command]
+async fn flows_mentioning(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+    column: Option<String>,
+) -> AppResult<Vec<deps::FlowMention>> {
+    on_env(state.inner(), &connection_id, move |host, token| {
+        deps::flows_mentioning(host, token, &table, column.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn security_users(state: State<'_, AppState>, connection_id: String) -> AppResult<Vec<security::User>> {
+    on_env(state.inner(), &connection_id, |host, token| security::users(host, token)).await
+}
+
+#[tauri::command]
+async fn security_roles(state: State<'_, AppState>, connection_id: String) -> AppResult<Vec<security::Role>> {
+    on_env(state.inner(), &connection_id, |host, token| security::roles(host, token)).await
+}
+
+/// A user's roles: their own and their teams'.
+#[tauri::command]
+async fn user_roles(state: State<'_, AppState>, connection_id: String, user_id: String) -> AppResult<security::UserRoles> {
+    on_env(state.inner(), &connection_id, move |host, token| security::user_roles(host, token, &user_id)).await
+}
+
+#[tauri::command]
+async fn role_privileges(state: State<'_, AppState>, connection_id: String, role_id: String) -> AppResult<Vec<security::Privilege>> {
+    on_env(state.inner(), &connection_id, move |host, token| security::role_privileges(host, token, &role_id)).await
+}
+
+/// What access a user has to one record, and who owns it.
+#[tauri::command]
+async fn principal_access(
+    state: State<'_, AppState>,
+    connection_id: String,
+    user_id: String,
+    table: String,
+    record_id: String,
+) -> AppResult<security::AccessCheck> {
+    on_env(state.inner(), &connection_id, move |host, token| {
+        security::principal_access(host, token, &user_id, &table, &record_id)
+    })
+    .await
+}
+
 /// System and personal views of a table, for the FetchXML tool (read only).
 #[tauri::command]
 async fn list_views(
@@ -836,6 +1012,21 @@ pub fn run() {
             run_fetchxml,
             list_relationships,
             list_views,
+            trace_logs,
+            trace_log,
+            system_jobs,
+            system_job,
+            open_record,
+            plugin_overview,
+            plugin_steps,
+            plugin_step,
+            component_dependencies,
+            flows_mentioning,
+            security_users,
+            security_roles,
+            user_roles,
+            role_privileges,
+            principal_access,
             open_xml_file,
             save_xml_file,
             table_keys,

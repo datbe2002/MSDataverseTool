@@ -14,6 +14,11 @@ import {
   AlertTriangle,
   PanelLeftClose,
   PanelLeftOpen,
+  Bug,
+  Activity,
+  Plug,
+  Link,
+  Shield,
 } from "./Icon";
 import { Logo } from "./Logo";
 import { UpdateNotice } from "./UpdateNotice";
@@ -25,7 +30,8 @@ interface Props {
   onSettings: () => void;
 }
 
-const NAV: { tool: string; items: { to: string; label: string; icon: typeof Layout }[] }[] = [
+/** The tools and their views (also listed by the command palette). */
+export const NAV: { tool: string; items: { to: string; label: string; icon: typeof Layout }[] }[] = [
   {
     tool: "SQL",
     items: [
@@ -43,9 +49,27 @@ const NAV: { tool: string; items: { to: string; label: string; icon: typeof Layo
     tool: "Power Automate",
     items: [{ to: ROUTES.flows, label: "Flows", icon: Flow }],
   },
+  {
+    tool: "Monitoring",
+    items: [
+      { to: ROUTES.traces, label: "Plug-in traces", icon: Bug },
+      { to: ROUTES.jobs, label: "System jobs", icon: Activity },
+    ],
+  },
+  {
+    tool: "Configuration",
+    items: [
+      { to: ROUTES.plugins, label: "Plug-in steps", icon: Plug },
+      { to: ROUTES.dependencies, label: "Dependencies", icon: Link },
+      { to: ROUTES.security, label: "Security", icon: Shield },
+    ],
+  },
 ];
 
 const COLLAPSED_KEY = "cds.sidebarCollapsed";
+
+/** Dispatched on `window` to collapse / expand the sidebar from elsewhere (the command palette). */
+export const TOGGLE_SIDEBAR_EVENT = "hexa:toggle-sidebar";
 
 function readCollapsed(): boolean {
   try {
@@ -79,7 +103,11 @@ export function Sidebar({ onSettings }: Props) {
       }
     };
     window.addEventListener("keydown", onKey, { capture: true });
-    return () => window.removeEventListener("keydown", onKey, { capture: true });
+    window.addEventListener(TOGGLE_SIDEBAR_EVENT, toggle);
+    return () => {
+      window.removeEventListener("keydown", onKey, { capture: true });
+      window.removeEventListener(TOGGLE_SIDEBAR_EVENT, toggle);
+    };
   }, []);
 
   const { pathname } = useLocation();

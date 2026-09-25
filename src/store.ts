@@ -282,7 +282,8 @@ interface AppStore {
   confirmDml: () => void;
   cancelDml: () => Promise<void>;
   loadSettings: () => Promise<void>;
-  saveSettings: (clientId: string, tenant: string, workerThreads: number) => Promise<void>;
+  /** Resolves false when the settings couldn't be written (the error is in `error`). */
+  saveSettings: (clientId: string, tenant: string, workerThreads: number) => Promise<boolean>;
 }
 
 const initialTheme = readTheme();
@@ -937,8 +938,10 @@ export const useStore = create<AppStore>((set, get) => {
       try {
         const settings = await api.setSettings(clientId, tenant, workerThreads);
         set({ settings });
+        return true;
       } catch (e) {
         set({ error: String(e) });
+        return false;
       }
     },
   };

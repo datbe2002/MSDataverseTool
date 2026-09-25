@@ -136,12 +136,15 @@ export function Combo({
   options,
   placeholder,
   loading,
+  hintSpace,
 }: {
   value: string;
   onCommit: (v: string) => void;
   options: Option[] | undefined;
   placeholder?: string;
   loading?: boolean;
+  /** Always keep the line under the input (for the picked option's label), so the field's height never changes — for forms with fields side by side. */
+  hintSpace?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
   const [open, setOpen] = useState(false);
@@ -223,7 +226,11 @@ export function Combo({
         />
         {loading && <Loader size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-subtle" />}
       </div>
-      {!open && current?.label && <span className="mt-1 block truncate text-[11px] text-subtle">{current.label}</span>}
+      {hintSpace ? (
+        <span className="mt-1 block h-4 truncate text-[11px] leading-4 text-subtle">{current?.label ?? ""}</span>
+      ) : (
+        !open && current?.label && <span className="mt-1 block truncate text-[11px] text-subtle">{current.label}</span>
+      )}
       {open &&
         box &&
         filtered.length > 0 &&
