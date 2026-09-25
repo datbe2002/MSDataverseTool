@@ -1,3 +1,17 @@
+### What's new in 0.4.0
+**Monitoring** (new sidebar group, read only)
+- **Plug-in traces** — the plug-in trace log, newest first: filter by time, class, message, table, sync/async, exceptions only, text in the trace, slow runs. Read the trace and the exception side by side, and follow one execution chain.
+- **System jobs** — async plug-ins, workflows, bulk deletes, imports…: filter by status and type, see why a job failed or what it's waiting for, open the record it was about, and jump between a job and its plug-in traces.
+
+**Configuration** (new sidebar group, read only)
+- **Plug-in steps** — assemblies, classes, steps and images, by assembly or by table in the order the steps run. Opens fast and loads the rest as you open it; Microsoft's assemblies are hidden unless you ask.
+- **Dependencies** — what uses a table or a column before you delete it: forms, views, processes, apps… plus the plug-in steps and cloud flows that mention it.
+- **Security** — a user's roles (their own and their teams'), what they can do on each table, and why they can or can't open a given record. Compare two roles side by side.
+
+**Everywhere**
+- **Command palette** — press **Ctrl+K** (or Ctrl+P) to jump to any view, table, flow or past query, switch environment, or run an action.
+- **Settings** are now a proper settings page: theme, shortcuts, query engine, sign-in and accounts, updates.
+
 ### What's new in 0.3.1
 - **Updates download much faster.** The app used to pass every few kilobytes of the installer to the window one by one, so a download of about 15 MB took far longer than it should. Updating *to* 0.3.1 still uses the old way; the updates after it will be fast.
 
