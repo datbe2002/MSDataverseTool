@@ -2,6 +2,7 @@ import { invoke as tauriInvoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { withReauth } from "./lib/reauth";
 import type {
   AccessCheck,
+  DependencyItem,
   DependencyReport,
   FlowMention,
   PluginOverview,
@@ -12,6 +13,10 @@ import type {
   SecurityRole,
   SecurityUser,
   UserRoles,
+  WebResourceDetail,
+  WebResourceList,
+  NewWebResource,
+  PickedFile,
   Cell,
   ColumnMeta,
   Connection,
@@ -149,6 +154,28 @@ export const api = {
   /** Cloud flows whose definition names the table (and column). Reads every definition. */
   flowsMentioning: (connectionId: string, table: string, column: string | null) =>
     invoke<FlowMention[]>("flows_mentioning", { connectionId, table, column }),
+  /** Every visible web resource (no content), with its solutions. */
+  webResources: (connectionId: string) => invoke<WebResourceList>("web_resources", { connectionId }),
+  /** One web resource with its published and unpublished content. */
+  webResource: (connectionId: string, id: string) => invoke<WebResourceDetail>("web_resource", { connectionId, id }),
+  /** What uses a web resource (forms, ribbons, other web resources…); `forDelete`: only what blocks deleting it. */
+  webResourceDependents: (connectionId: string, id: string, forDelete = false) =>
+    invoke<DependencyItem[]>("web_resource_dependents", { connectionId, id, forDelete }),
+  /** Saves content (base64), not published. `baseHash`: refuse ("CONFLICT: …") when someone saved meanwhile. */
+  saveWebResource: (connectionId: string, id: string, content: string, baseHash: string | null) =>
+    invoke<{ hash: string }>("save_web_resource", { connectionId, id, content, baseHash }),
+  /** Publishes web resources in one request. */
+  publishWebResources: (connectionId: string, ids: string[]) => invoke<void>("publish_web_resources", { connectionId, ids }),
+  /** Creates a web resource (not published); returns its id. */
+  createWebResource: (connectionId: string, resource: NewWebResource) => invoke<string>("create_web_resource", { connectionId, resource }),
+  deleteWebResource: (connectionId: string, id: string) => invoke<void>("delete_web_resource", { connectionId, id }),
+  /** Asks for a file and reads it as base64; null when cancelled. */
+  openWebResourceFile: () => invoke<PickedFile | null>("open_web_resource_file"),
+  /** Opens the published web resource in the browser. */
+  openWebResource: (connectionId: string, name: string) => invoke<void>("open_web_resource", { connectionId, name }),
+  /** Saves content (base64) to a file the user picks; null when cancelled. */
+  saveWebResourceFile: (content: string, fileName: string) =>
+    invoke<{ path: string; name: string } | null>("save_web_resource_file", { content, fileName }),
   securityUsers: (connectionId: string) => invoke<SecurityUser[]>("security_users", { connectionId }),
   securityRoles: (connectionId: string) => invoke<SecurityRole[]>("security_roles", { connectionId }),
   userRoles: (connectionId: string, userId: string) => invoke<UserRoles>("user_roles", { connectionId, userId }),

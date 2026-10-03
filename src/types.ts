@@ -559,3 +559,89 @@ export interface AccessCheck {
   userBusinessUnitParents: string[];
   owningBusinessUnitParents: string[];
 }
+
+/* ---------- Web resources ---------- */
+
+export interface WebResource {
+  id: string;
+  /** Unique name, often a path: `new_/scripts/account.js`. */
+  name: string;
+  displayName: string;
+  description: string | null;
+  /** 1 HTML · 2 CSS · 3 JS · 4 XML · 5 PNG · 6 JPG · 7 GIF · 8 XAP · 9 XSL · 10 ICO · 11 SVG · 12 RESX. */
+  kind: number;
+  managed: boolean;
+  modifiedOn: string;
+  modifiedBy: string | null;
+  solutions: string[];
+  /** Shipped by Microsoft (a Dynamics 365 app, the platform…). */
+  microsoft: boolean;
+}
+
+export interface WebResourceSolution {
+  id: string;
+  uniqueName: string;
+  friendlyName: string;
+  managed: boolean;
+  publisher: string;
+  prefix: string;
+  microsoft: boolean;
+  /** Visible web resources in it. */
+  count: number;
+}
+
+export interface WebResourceList {
+  items: WebResource[];
+  /** Every visible solution (count 0 = none of the web resources). */
+  solutions: WebResourceSolution[];
+  solutionsError: string | null;
+  /** Largest file the environment takes (bytes). */
+  maxUploadSize: number | null;
+}
+
+export interface WebResourceDetail {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string | null;
+  kind: number;
+  managed: boolean;
+  customizable: boolean;
+  canBeDeleted: boolean;
+  language: number | null;
+  introducedVersion: string | null;
+  createdOn: string;
+  createdBy: string | null;
+  modifiedOn: string;
+  modifiedBy: string | null;
+  /** Published content, base64. */
+  content: string;
+  size: number;
+  /** Saved-but-not-published content (base64), only when it differs. */
+  unpublished: string | null;
+  unpublishedSize: number | null;
+  unpublishedError: string | null;
+  etag: string | null;
+  /** Hash of the latest content; a save sends it back to catch someone else's save. */
+  latestHash: string;
+}
+
+export interface NewWebResource {
+  /** Full unique name, prefix included. */
+  name: string;
+  displayName: string;
+  description: string | null;
+  kind: number;
+  /** Base64, may be empty. */
+  content: string;
+  /** Solution unique name; null = default solution only. */
+  solution: string | null;
+}
+
+export interface PickedFile {
+  name: string;
+  path: string;
+  /** Base64. */
+  content: string;
+  size: number;
+}

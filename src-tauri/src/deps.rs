@@ -325,6 +325,18 @@ pub fn report(host: &str, token: &str, table: &str, column: Option<&str>, for_de
     Ok(Report { target, items: resolve(&base, token, &rows), steps, steps_error })
 }
 
+/// What depends on one solution component (a web resource: forms, ribbons,
+/// site maps, other web resources…), with names looked up. `for_delete`: only
+/// what blocks deleting it.
+pub fn dependents_of(host: &str, token: &str, id: &str, kind: i64, for_delete: bool) -> AppResult<Vec<DependencyItem>> {
+    let id = guid(id, "component id")?;
+    let base = format!("https://{}/api/data/v9.2", host);
+    let function = if for_delete { "RetrieveDependenciesForDelete" } else { "RetrieveDependentComponents" };
+    let url = format!("{}/{}(ObjectId=@id,ComponentType=@type)?@id={}&@type={}", base, function, id, kind);
+    let rows = get_json(&url, token, None)?.get("value").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    Ok(resolve(&base, token, &rows))
+}
+
 /// How often `name` is used in a flow definition as a word, not counting JSON keys
 /// (`"name": …` is in every definition).
 pub fn mentions(definition: &str, name: &str) -> usize {

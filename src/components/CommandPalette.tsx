@@ -3,7 +3,8 @@ import { useStore, activeProjectOf } from "../store";
 import { useSchema } from "../lib/schema";
 import { useFlows } from "../lib/flows";
 import { useFetchXml } from "../lib/fetchXmlStore";
-import { ROUTES, flowRoute, navigate } from "../lib/navigation";
+import { ROUTES, flowRoute, navigate, webResourceRoute } from "../lib/navigation";
+import { kindOf, listCache as webResourceCache } from "../lib/webresources";
 import { rank, type PaletteItem } from "../lib/palette";
 import { tabTitle } from "../lib/tabs";
 import { relativeTime } from "../lib/history";
@@ -26,6 +27,7 @@ import {
   LogIn,
   LogOut,
   FileCode,
+  Globe,
   PanelLeftClose,
   CornerDownLeft,
 } from "./Icon";
@@ -83,6 +85,8 @@ export function CommandPalette({ onClose, openers }: { onClose: () => void; open
   const theme = useStore((s) => s.theme);
   const tables = useSchema((s) => (activeId ? s.tables[activeId] : undefined));
   const flows = useFlows((s) => (activeId ? s.lists[activeId]?.flows : undefined));
+  // Only when the Web resources tool has read them (thousands of rows: not read just for the palette).
+  const webResources = webResourceCache.useStore((s) => (activeId ? s.data[`${activeId}|`]?.items : undefined));
 
   // Tables and flows are cached per environment; read them if they aren't yet.
   useEffect(() => {
@@ -236,6 +240,20 @@ export function CommandPalette({ onClose, openers }: { onClose: () => void; open
       });
     }
 
+    for (const r of webResources ?? []) {
+      if (r.microsoft) continue;
+      out.push({
+        id: `webresource:${r.id}`,
+        group: "Web resources",
+        label: r.name,
+        hint: kindOf(r.kind).label,
+        keywords: r.displayName,
+        icon: <Globe size={15} />,
+        searchOnly: true,
+        run: () => navigate(webResourceRoute(r.id)),
+      });
+    }
+
     const seen = new Set<string>();
     for (const h of history) {
       if (h.connectionId !== activeId || seen.has(h.sql) || seen.size >= 30) continue;
@@ -252,7 +270,7 @@ export function CommandPalette({ onClose, openers }: { onClose: () => void; open
       });
     }
     return out;
-  }, [activeId, connections, projects, project, tabs, activeTabId, history, theme, tables, flows, openers]);
+  }, [activeId, connections, projects, project, tabs, activeTabId, history, theme, tables, flows, webResources, openers]);
 
   const groups = useMemo(() => rank(items, query), [items, query]);
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);

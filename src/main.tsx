@@ -6,12 +6,20 @@ import { loader } from "@monaco-editor/react";
 // (the default loader would fetch Monaco from a CDN).
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+import TsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import CssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
+import HtmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import { defineEditorThemes } from "./lib/monacoTheme";
 
 self.MonacoEnvironment = {
   getWorker(_id: string, label: string) {
-    // Flow definitions are shown as JSON (folding, brackets need its worker).
-    return label === "json" ? new JsonWorker() : new EditorWorker();
+    // Flow definitions are shown as JSON (folding, brackets need its worker);
+    // web resources as JavaScript, CSS or HTML. Each worker loads on first use.
+    if (label === "json") return new JsonWorker();
+    if (label === "typescript" || label === "javascript") return new TsWorker();
+    if (label === "css" || label === "scss" || label === "less") return new CssWorker();
+    if (label === "html" || label === "handlebars" || label === "razor") return new HtmlWorker();
+    return new EditorWorker();
   },
 };
 

@@ -319,3 +319,28 @@ export const Shield = (p: IconProps) => (
     <path d="m9 12 2 2 4-4" />
   </svg>
 );
+
+/** Web resources. */
+export const Globe = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z" />
+  </svg>
+);
+
+export const Upload = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <path d="M17 8l-5-5-5 5" />
+    <path d="M12 3v12" />
+  </svg>
+);
+
+export const More = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="5" cy="12" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="19" cy="12" r="1" />
+  </svg>
+);

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useStore } from "../store";
 import { useColumns, useTables } from "../lib/fetchMeta";
 import { depsOf, useDeps } from "../lib/deps";
-import { flowRoute, pluginRoute } from "../lib/navigation";
+import { flowRoute, pluginRoute, webResourceRoute } from "../lib/navigation";
 import { Combo } from "./FetchNodePanel";
 import { Link, Loader, Search, Check, AlertTriangle, ArrowUpRight, Flow, Plug } from "./Icon";
 import type { DependencyItem } from "../types";
@@ -149,6 +149,8 @@ export function DependenciesView() {
                         ? () => navigate(flowRoute(i.id))
                         : i.kind === 92
                         ? () => navigate(pluginRoute(`step:${i.id}`))
+                        : i.kind === 61
+                        ? () => navigate(webResourceRoute(i.id))
                         : null;
                     return (
                       <li key={`${i.kind}:${i.id}`} className="flex items-center gap-3 px-4 py-2">

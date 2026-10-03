@@ -19,6 +19,7 @@ mod sql;
 mod traces;
 mod update;
 mod views;
+mod webresources;
 
 use error::{AppError, AppResult};
 use serde::Serialize;
@@ -643,6 +644,150 @@ async fn flows_mentioning(
     .await
 }
 
+/// Every visible web resource (no content), with its solutions.
+#[tauri::command]
+async fn web_resources(state: State<'_, AppState>, connection_id: String) -> AppResult<webresources::WebResourceList> {
+    on_env(state.inner(), &connection_id, webresources::list).await
+}
+
+/// One web resource with its published and unpublished content.
+#[tauri::command]
+async fn web_resource(state: State<'_, AppState>, connection_id: String, id: String) -> AppResult<webresources::WebResourceDetail> {
+    on_env(state.inner(), &connection_id, move |host, token| webresources::detail(host, token, &id)).await
+}
+
+/// What uses a web resource (forms, ribbons, other web resources…);
+/// `for_delete`: only what blocks deleting it.
+#[tauri::command]
+async fn web_resource_dependents(
+    state: State<'_, AppState>,
+    connection_id: String,
+    id: String,
+    for_delete: Option<bool>,
+) -> AppResult<Vec<deps::DependencyItem>> {
+    on_env(state.inner(), &connection_id, move |host, token| {
+        deps::dependents_of(host, token, &id, webresources::COMPONENT_WEB_RESOURCE, for_delete.unwrap_or(false))
+    })
+    .await
+}
+
+/// Saves a web resource's content (not published). `base_hash`: refuse when
+/// the content on the server isn't the one the editor started from.
+#[tauri::command]
+async fn save_web_resource(
+    state: State<'_, AppState>,
+    connection_id: String,
+    id: String,
+    content: String,
+    base_hash: Option<String>,
+) -> AppResult<webresources::Saved> {
+    on_env(state.inner(), &connection_id, move |host, token| {
+        webresources::update(host, token, &id, &content, base_hash.as_deref())
+    })
+    .await
+}
+
+/// Publishes web resources in one request.
+#[tauri::command]
+async fn publish_web_resources(state: State<'_, AppState>, connection_id: String, ids: Vec<String>) -> AppResult<()> {
+    on_env(state.inner(), &connection_id, move |host, token| webresources::publish(host, token, &ids)).await
+}
+
+/// Creates a web resource (not published); returns its id.
+#[tauri::command]
+async fn create_web_resource(state: State<'_, AppState>, connection_id: String, resource: webresources::NewWebResource) -> AppResult<String> {
+    on_env(state.inner(), &connection_id, move |host, token| webresources::create(host, token, &resource)).await
+}
+
+/// Deletes a web resource.
+#[tauri::command]
+async fn delete_web_resource(state: State<'_, AppState>, connection_id: String, id: String) -> AppResult<()> {
+    on_env(state.inner(), &connection_id, move |host, token| webresources::delete(host, token, &id)).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickedFile {
+    name: String,
+    path: String,
+    /// Base64.
+    content: String,
+    size: usize,
+}
+
+/// Asks for a file to put in a web resource and reads it (base64); `None`
+/// when the dialog was cancelled.
+#[tauri::command]
+async fn open_web_resource_file(window: tauri::WebviewWindow) -> AppResult<Option<PickedFile>> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tokio::task::spawn_blocking(move || {
+        window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_title("Choose a file")
+            .add_filter(
+                "Web resources",
+                &["js", "html", "htm", "css", "xml", "xsl", "xslt", "png", "jpg", "jpeg", "gif", "ico", "svg", "resx"],
+            )
+            .add_filter("All files", &["*"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(AppError::msg)?;
+    let Some(picked) = picked else { return Ok(None) };
+    let path = picked.into_path().map_err(AppError::msg)?;
+    if std::fs::metadata(&path)?.len() > MAX_WEB_RESOURCE_FILE as u64 {
+        return Err(AppError::msg("This file is too large for a web resource."));
+    }
+    let bytes = std::fs::read(&path)?;
+    Ok(Some(PickedFile {
+        name: file_name(&path),
+        path: path.to_string_lossy().to_string(),
+        size: bytes.len(),
+        content: STANDARD.encode(bytes),
+    }))
+}
+
+/// Opens the published web resource in the browser.
+#[tauri::command]
+fn open_web_resource(connection_id: String, name: String) -> AppResult<()> {
+    let (conn, _) = connection_project(&connection_id)?;
+    webbrowser::open(&webresources::url(&conn.host, &name)?)?;
+    Ok(())
+}
+
+/// Largest web resource written to disk (Dataverse's own limit is lower).
+const MAX_WEB_RESOURCE_FILE: usize = 64 * 1024 * 1024;
+
+/// Saves a web resource's content (base64) to a file the user picks; `None`
+/// when the dialog was cancelled.
+#[tauri::command]
+async fn save_web_resource_file(window: tauri::WebviewWindow, content: String, file_name: String) -> AppResult<Option<XmlFile>> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use tauri_plugin_dialog::DialogExt;
+    if content.len() > MAX_WEB_RESOURCE_FILE {
+        return Err(AppError::msg("This web resource is too large to save."));
+    }
+    let bytes = STANDARD.decode(content.trim()).map_err(|_| AppError::msg("The web resource's content isn't valid base64."))?;
+    let suggested = file_name.rsplit(['/', '\\']).next().unwrap_or("").to_string();
+    let ext = std::path::Path::new(&suggested).extension().map(|e| e.to_string_lossy().to_string());
+    let picked = tokio::task::spawn_blocking(move || {
+        let mut dialog = window.dialog().file().set_parent(&window).set_title("Save web resource").set_file_name(suggested);
+        if let Some(ext) = &ext {
+            dialog = dialog.add_filter(ext.to_uppercase(), &[ext.as_str()]);
+        }
+        dialog.add_filter("All files", &["*"]).blocking_save_file()
+    })
+    .await
+    .map_err(AppError::msg)?;
+    let Some(picked) = picked else { return Ok(None) };
+    let path = picked.into_path().map_err(AppError::msg)?;
+    std::fs::write(&path, bytes)?;
+    Ok(Some(XmlFile { name: self::file_name(&path), path: path.to_string_lossy().to_string(), contents: None }))
+}
+
 #[tauri::command]
 async fn security_users(state: State<'_, AppState>, connection_id: String) -> AppResult<Vec<security::User>> {
     on_env(state.inner(), &connection_id, |host, token| security::users(host, token)).await
@@ -1022,6 +1167,16 @@ pub fn run() {
             plugin_step,
             component_dependencies,
             flows_mentioning,
+            web_resources,
+            web_resource,
+            web_resource_dependents,
+            open_web_resource,
+            save_web_resource_file,
+            save_web_resource,
+            publish_web_resources,
+            create_web_resource,
+            delete_web_resource,
+            open_web_resource_file,
             security_users,
             security_roles,
             user_roles,

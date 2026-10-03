@@ -22,6 +22,7 @@ import { matchesBinding } from "./lib/keys";
 import { ROUTES } from "./lib/navigation";
 import { startUpdateChecks } from "./lib/updater";
 import { useFetchXml } from "./lib/fetchXmlStore";
+import { WR_SAVE_EVENT } from "./lib/webresources";
 import type { Connection, Project } from "./types";
 
 /** Modal openers handed to routed views through the outlet context. */
@@ -39,6 +40,7 @@ export function RootLayout() {
   const runBindings = useStore((s) => s.keybindings.run);
   const isQuery = useMatch(ROUTES.query) !== null;
   const isFetchXml = useMatch(ROUTES.fetchxml) !== null;
+  const isWebResources = useMatch(ROUTES.webresources) !== null;
 
   const [addOpen, setAddOpen] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
@@ -81,6 +83,11 @@ export function RootLayout() {
         e.preventDefault();
         e.stopPropagation();
         void useFetchXml.getState().save(e.shiftKey);
+      } else if (isWebResources && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s") {
+        // The Web resources tool saves the open web resource (Shift = save and publish).
+        e.preventDefault();
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent(WR_SAVE_EVENT, { detail: { publish: e.shiftKey } }));
       } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
         e.stopPropagation();
@@ -89,7 +96,7 @@ export function RootLayout() {
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [run, runBindings, saveActiveTab, isFetchXml]);
+  }, [run, runBindings, saveActiveTab, isFetchXml, isWebResources]);
 
   const outletContext: LayoutContext = {
     openDiscover: () => setEnvOpen(true),

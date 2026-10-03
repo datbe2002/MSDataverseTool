@@ -5,6 +5,8 @@ import type * as Monaco from "monaco-editor";
 
 export const EDITOR_THEME = { dark: "hexa-dark", light: "hexa-light" } as const;
 
+export const EDITOR_FONT = "'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace";
+
 export function defineEditorThemes(monaco: typeof Monaco) {
   monaco.editor.defineTheme(EDITOR_THEME.dark, {
     base: "vs-dark",

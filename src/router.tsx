@@ -11,6 +11,7 @@ import { JobsView } from "./components/JobsView";
 import { PluginsView } from "./components/PluginsView";
 import { DependenciesView } from "./components/DependenciesView";
 import { SecurityView } from "./components/SecurityView";
+import { WebResourcesView } from "./components/WebResourcesView";
 import { ROUTES, setNavigator } from "./lib/navigation";
 
 function OverviewRoute() {
@@ -44,6 +45,7 @@ export const router = createHashRouter([
       { path: "plugins", element: <PluginsView /> },
       { path: "dependencies", element: <DependenciesView /> },
       { path: "security/:tab?", element: <SecurityView /> },
+      { path: "webresources", element: <WebResourcesView /> },
       { path: "*", element: <Navigate to={ROUTES.overview} replace /> },
     ],
   },

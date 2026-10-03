@@ -19,6 +19,7 @@ import {
   Plug,
   Link,
   Shield,
+  Globe,
 } from "./Icon";
 import { Logo } from "./Logo";
 import { UpdateNotice } from "./UpdateNotice";
@@ -63,6 +64,10 @@ export const NAV: { tool: string; items: { to: string; label: string; icon: type
       { to: ROUTES.dependencies, label: "Dependencies", icon: Link },
       { to: ROUTES.security, label: "Security", icon: Shield },
     ],
+  },
+  {
+    tool: "Customization",
+    items: [{ to: ROUTES.webresources, label: "Web resources", icon: Globe }],
   },
 ];
 
