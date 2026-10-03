@@ -1,3 +1,11 @@
+### What's new in 0.5.0
+**Customization** (new sidebar group)
+- **Web resources** — every JavaScript, HTML, CSS, image… web resource in the environment, as a folder tree (Microsoft's are hidden unless you ask). See the published and the unpublished content, and where each one is used (forms, ribbons, other web resources).
+  - Press **Edit** to change it in the editor. Before anything is written you **review the changes as a diff**; then **Save** (Ctrl+S) or **Save & publish** (Ctrl+Shift+S), or **Publish all** at once.
+  - **Compare** your edit with the latest saved version, or the unpublished version with the published one, **replace from a file**, **download**, open it in the browser, create a **new** one, or **delete** it (after checking what still uses it).
+  - If someone else saved the same web resource meanwhile, saving stops and shows you both versions. Web resources that can't be customized open read only, with a warning.
+- Jump to a web resource from the command palette (Ctrl+K) or from Dependencies.
+
 ### What's new in 0.4.0
 **Monitoring** (new sidebar group, read only)
 - **Plug-in traces** — the plug-in trace log, newest first: filter by time, class, message, table, sync/async, exceptions only, text in the trace, slow runs. Read the trace and the exception side by side, and follow one execution chain.
