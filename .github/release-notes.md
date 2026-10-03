@@ -1,3 +1,11 @@
+### What's new in 0.6.0
+**Flow run history** (cloud flows in a solution, from Dataverse — kept 28 days by default)
+- **Flows › Runs** — a new tab on every flow: its runs newest first, filtered by time range and status. Open a run to see when it ran, how long it took and its full error.
+  - **Find the parent of a failed child flow**: a child flow's run shows the run that started it — **Go to parent run** opens it, and you can keep climbing when the parent is a child too. A parent run lists the child runs it started.
+- **Monitoring › Flow runs** — how many runs failed in the last hour, 24 hours, 7 days or 28 days: runs, failures, success rate and failing flows, runs per hour / day, flows ranked by failures, and the most recent failures.
+- The flow list shows each flow's failure count once Flow runs has counted them.
+- Needs read access to the Flow Run table (prvReadflowrun); without it the app says so.
+
 ### What's new in 0.5.0
 **Customization** (new sidebar group)
 - **Web resources** — every JavaScript, HTML, CSS, image… web resource in the environment, as a folder tree (Microsoft's are hidden unless you ask). See the published and the unpublished content, and where each one is used (forms, ribbons, other web resources).
