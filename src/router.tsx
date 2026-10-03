@@ -8,6 +8,7 @@ import { FlowsView } from "./components/FlowsView";
 import { FetchXmlView } from "./components/FetchXmlView";
 import { TracesView } from "./components/TracesView";
 import { JobsView } from "./components/JobsView";
+import { FlowRunsView } from "./components/FlowRunsView";
 import { PluginsView } from "./components/PluginsView";
 import { DependenciesView } from "./components/DependenciesView";
 import { SecurityView } from "./components/SecurityView";
@@ -42,6 +43,7 @@ export const router = createHashRouter([
       { path: "fetchxml", element: <FetchXmlView /> },
       { path: "traces/:traceId?", element: <TracesView /> },
       { path: "jobs/:jobId?", element: <JobsView /> },
+      { path: "flowruns", element: <FlowRunsView /> },
       { path: "plugins", element: <PluginsView /> },
       { path: "dependencies", element: <DependenciesView /> },
       { path: "security/:tab?", element: <SecurityView /> },

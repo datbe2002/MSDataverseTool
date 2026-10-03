@@ -10,6 +10,7 @@ export const ROUTES = {
   fetchxml: "/fetchxml",
   traces: "/traces",
   jobs: "/jobs",
+  flowruns: "/flowruns",
   plugins: "/plugins",
   dependencies: "/dependencies",
   security: "/security",

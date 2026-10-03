@@ -20,6 +20,7 @@ import {
   Link,
   Shield,
   Globe,
+  Gauge,
 } from "./Icon";
 import { Logo } from "./Logo";
 import { UpdateNotice } from "./UpdateNotice";
@@ -55,6 +56,7 @@ export const NAV: { tool: string; items: { to: string; label: string; icon: type
     items: [
       { to: ROUTES.traces, label: "Plug-in traces", icon: Bug },
       { to: ROUTES.jobs, label: "System jobs", icon: Activity },
+      { to: ROUTES.flowruns, label: "Flow runs", icon: Gauge },
     ],
   },
   {

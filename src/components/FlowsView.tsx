@@ -8,6 +8,8 @@ import { buildOutline, childFlowIds, keyLines, type ChildFlow, type OutlineNode 
 import { ROUTES, flowRoute } from "../lib/navigation";
 import { FlowOutline } from "./FlowOutline";
 import { FlowDesigner } from "./FlowDesigner";
+import { FlowRunsTab } from "./FlowRuns";
+import { rangeLabel, runSummaries, useMonitorRange } from "../lib/flowRuns";
 import { relativeTime } from "../lib/history";
 import { EDITOR_THEME } from "../lib/monacoTheme";
 import { Search, Refresh, Copy, Flow, AlertTriangle, ArrowLeft, ArrowUpRight, Loader } from "./Icon";
@@ -41,6 +43,13 @@ export function FlowsView() {
   const status = useFlows((s) => (activeId ? s.status[activeId] : undefined));
   const error = useFlows((s) => (activeId ? s.errors[activeId] : undefined));
   const loadFlows = useFlows((s) => s.loadFlows);
+  // Failures per flow, once Flow runs has counted this environment.
+  const runRange = useMonitorRange((s) => s.range);
+  const runSummary = runSummaries.useStore((s) => (activeId ? s.data[`${activeId}|${runRange}`] : undefined));
+  const failuresOf = useMemo(
+    () => new Map((runSummary?.flows ?? []).filter((f) => f.failed > 0).map((f) => [f.flowId, f.failed])),
+    [runSummary]
+  );
 
   const [filter, setFilter] = useState("");
   const [state, setState] = useState<StateFilter>("all");
@@ -254,6 +263,14 @@ export function FlowsView() {
                       {f.owner || "—"} · {time(f.modifiedOn)}
                     </span>
                   </span>
+                  {failuresOf.has(f.id.toLowerCase()) && (
+                    <span
+                      className="badge badge-danger shrink-0 tabular-nums"
+                      title={`${failuresOf.get(f.id.toLowerCase())} failed runs in the ${rangeLabel(runRange).toLowerCase()}`}
+                    >
+                      {failuresOf.get(f.id.toLowerCase())!.toLocaleString()}
+                    </span>
+                  )}
                 </button>
               </li>
             ))
@@ -306,7 +323,7 @@ export function FlowsView() {
   );
 }
 
-type DefinitionTab = "json" | "designer";
+type DefinitionTab = "json" | "designer" | "runs";
 const TAB_KEY = "cds.flowTab";
 
 /**
@@ -451,16 +468,32 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
   // JSON (outline + editor) or Designer; both follow the same picked step.
   const [tab, setTabState] = useState<DefinitionTab>(() => {
     const t = params.get("tab");
-    return t === "json" || t === "designer" ? t : readTab();
+    return t === "json" || t === "designer" || t === "runs" ? t : readTab();
   });
+  // The run picked on the Runs tab; kept in the URL (?tab=runs&run=<id>) so Back and reload keep it.
+  const runId = params.get("run");
+  const setUrl = (t: DefinitionTab, run: string | null) => {
+    const next = new URLSearchParams(params);
+    next.set("tab", t);
+    if (run) next.set("run", run);
+    else next.delete("run");
+    void navigate({ pathname: location.pathname, search: `?${next}` }, { replace: true, state: location.state });
+  };
   const setTab = (t: DefinitionTab) => {
     setTabState(t);
+    if (t === "runs" || params.get("tab") === "runs") setUrl(t, t === "runs" ? runId : null);
+    // Runs is a look at one flow's history; opening flows keeps landing on the definition.
+    if (t === "runs") return;
     try {
       localStorage.setItem(TAB_KEY, t);
     } catch {
       // Only a convenience.
     }
   };
+  const monitorRange = useMonitorRange((s) => s.range);
+  const runFailures = runSummaries.useStore(
+    (s) => s.data[`${connId}|${monitorRange}`]?.flows.find((f) => f.flowId === flow.id.toLowerCase())?.failed ?? 0
+  );
   const stepsById = useMemo(() => {
     const map = new Map<string, OutlineNode>();
     const walk = (nodes: OutlineNode[]) => nodes.forEach((n) => (map.set(n.id, n), walk(n.children)));
@@ -684,6 +717,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
           [
             ["json", "JSON"],
             ["designer", "Designer"],
+            ["runs", "Runs"],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -694,11 +728,21 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
             onClick={() => setTab(key)}
           >
             {label}
+            {key === "runs" && runFailures > 0 && (
+              <span className="badge badge-danger ml-1.5 !px-1.5 tabular-nums" title={`${runFailures} failed runs`}>
+                {runFailures.toLocaleString()}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      <div className="min-h-0 flex-1" style={{ background: "var(--editor-bg)" }}>
+      {tab === "runs" && (
+        <div className="min-h-0 flex-1">
+          <FlowRunsTab connId={connId} flow={flow} runId={runId} onRun={(id) => setUrl("runs", id)} />
+        </div>
+      )}
+      <div className={`min-h-0 flex-1 ${tab === "runs" ? "hidden" : ""}`} style={{ background: "var(--editor-bg)" }}>
         {definitionError ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center text-sm">
             <AlertTriangle size={18} className="text-warning" />

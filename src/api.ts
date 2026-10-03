@@ -26,6 +26,9 @@ import type {
   Environment,
   FetchPage,
   FlowCall,
+  RunFilter,
+  RunPage,
+  RunSummary,
   FlowList,
   JobDetail,
   JobFilter,
@@ -106,6 +109,11 @@ export const api = {
     invoke<string>("flow_definition", { connectionId, flowId }),
   /** Every child flow call in the environment (reads all definitions). */
   flowCalls: (connectionId: string) => invoke<FlowCall[]>("flow_calls", { connectionId }),
+  /** A page of cloud flow runs, newest first; `next` = the previous page's link. */
+  flowRuns: (connectionId: string, filter: RunFilter, next: string | null) =>
+    invoke<RunPage>("flow_runs", { connectionId, filter, next }),
+  /** Runs and failures per flow and per hour since `since` (reads the whole window). */
+  flowRunSummary: (connectionId: string, since: string) => invoke<RunSummary>("flow_run_summary", { connectionId, since }),
 
   /** N:1, 1:N and N:N relationships of a table (for `<link-entity>`). */
   listRelationships: (connectionId: string, table: string) =>

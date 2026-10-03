@@ -300,6 +300,15 @@ export const Activity = (p: IconProps) => (
   </svg>
 );
 
+/** Flow runs monitor. */
+export const Gauge = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4.5 18a9 9 0 1 1 15 0" />
+    <path d="m12 14 4-5" />
+    <circle cx="12" cy="14" r="1.5" />
+  </svg>
+);
+
 export const Plug = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4" />

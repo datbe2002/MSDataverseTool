@@ -192,6 +192,79 @@ export interface FlowCall {
   child: string;
 }
 
+/** What a flow run ended as, whatever its `status` spelling. */
+export type RunOutcome = "failed" | "succeeded" | "cancelled" | "running" | "other";
+
+/** Server-side filters of the flow run list (`flow_runs`). */
+export interface RunFilter {
+  since?: string | null;
+  /** One flow's runs (its `workflow` id). */
+  flowId?: string | null;
+  status?: Exclude<RunOutcome, "other"> | null;
+  /** One run by its name (finds a child run's parent). */
+  runName?: string | null;
+  /** The runs this run started (child flows). */
+  parentRun?: string | null;
+}
+
+/** A cloud flow run (`flowrun` row). */
+export interface RunRow {
+  id: string;
+  /** The run id Power Automate shows (`08584…CU12`). */
+  runName: string;
+  /** Lowercase `workflow` id. */
+  flowId: string | null;
+  flowName: string | null;
+  status: string;
+  outcome: RunOutcome;
+  startTime: string | null;
+  endTime: string | null;
+  durationMs: number | null;
+  triggerType: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  parentRunId: string | null;
+  owner: string;
+}
+
+export interface RunPage {
+  rows: RunRow[];
+  next: string | null;
+}
+
+/** One flow's runs in a summary window. */
+export interface FlowRunStats {
+  /** Lowercase `workflow` id ("" when the run didn't name its flow). */
+  flowId: string;
+  total: number;
+  failed: number;
+  succeeded: number;
+  cancelled: number;
+  running: number;
+  lastRun: string | null;
+  lastFailure: string | null;
+  lastErrorCode: string | null;
+}
+
+/** Runs and failures of every flow since a time (`flow_run_summary`). */
+export interface RunSummary {
+  since: string;
+  until: string;
+  total: number;
+  failed: number;
+  succeeded: number;
+  cancelled: number;
+  running: number;
+  /** Most failures first. */
+  flows: FlowRunStats[];
+  /** Hours with runs (UTC hour start), oldest first. */
+  hours: { at: string; total: number; failed: number }[];
+  /** Stopped reading at the row cap: counts are a lower bound. */
+  truncated: boolean;
+  /** How long the environment keeps runs; null if unknown. */
+  retentionSeconds: number | null;
+}
+
 /** One page of a FetchXML query (`run_fetchxml`). */
 export interface FetchPage {
   /** Rows as the Web API returned them, annotations included. */

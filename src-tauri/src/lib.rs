@@ -7,6 +7,7 @@ mod dml;
 mod engine;
 mod error;
 mod fetchxml;
+mod flowruns;
 mod flows;
 mod http;
 mod jobs;
@@ -597,6 +598,23 @@ async fn on_env<T: Send + 'static>(
     tokio::task::spawn_blocking(move || f(&host, &token)).await.map_err(AppError::msg)?
 }
 
+/// A page of cloud flow runs (`flowrun`), newest first (`next`: link from the previous page).
+#[tauri::command]
+async fn flow_runs(
+    state: State<'_, AppState>,
+    connection_id: String,
+    filter: flowruns::RunFilter,
+    next: Option<String>,
+) -> AppResult<flowruns::RunPage> {
+    on_env(state.inner(), &connection_id, move |host, token| flowruns::list(host, token, &filter, next.as_deref())).await
+}
+
+/// Runs and failures per flow and per hour since `since`.
+#[tauri::command]
+async fn flow_run_summary(state: State<'_, AppState>, connection_id: String, since: String) -> AppResult<flowruns::RunSummary> {
+    on_env(state.inner(), &connection_id, move |host, token| flowruns::summary(host, token, &since)).await
+}
+
 /// Plug-in assemblies, types, service endpoints and a slim index of every step.
 #[tauri::command]
 async fn plugin_overview(state: State<'_, AppState>, connection_id: String, hide_microsoft: bool) -> AppResult<plugins::Overview> {
@@ -1154,6 +1172,8 @@ pub fn run() {
             list_flows,
             flow_definition,
             flow_calls,
+            flow_runs,
+            flow_run_summary,
             run_fetchxml,
             list_relationships,
             list_views,
