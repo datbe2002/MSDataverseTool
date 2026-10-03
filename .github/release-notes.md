@@ -1,3 +1,12 @@
+### What's new in 0.7.0
+**Flow tasks** (Power Automate › Tasks) — keep only the flows of an assigned task in a folder of their own, let someone (or Claude) edit them there, and see exactly what changed before anything goes back.
+- **New task** — pick where its folder goes; add flows from the task or with **Add to task** on any flow in Flows. Each flow is read from the environment as its baseline. The folder gets a CLAUDE.md with the task and the rules for editing flow definitions, and a git history when git is installed.
+- **Compare** the original, the edited file, the cloud now and earlier versions — as a JSON diff, or **Visual**: both versions drawn like the designer with added, removed, changed and moved steps marked. Pick a step to see what changed in it value by value, or its Parameters / Settings / Data as in the designer.
+- **Checks** on the edited file: actions or variables that don't exist, broken runAfter, connection references, child flows.
+- Warns when the flow was changed in the cloud meanwhile; **Update baseline from cloud** keeps your edits or takes the cloud version.
+- **Mark reviewed** — cleared again when the file changes.
+- Fixed: steps of flows saved by the new designer ("SUCCEEDED") no longer show a "runs if" warning edge.
+
 ### What's new in 0.6.0
 **Flow run history** (cloud flows in a solution, from Dataverse — kept 28 days by default)
 - **Flows › Runs** — a new tab on every flow: its runs newest first, filtered by time range and status. Open a run to see when it ran, how long it took and its full error.

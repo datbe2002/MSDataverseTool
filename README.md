@@ -6,7 +6,8 @@ A modern, friendly desktop toolkit for **Power Platform / Dataverse**:
   on the "SQL 4 CDS" tool from XrmToolBox).
 - **Flows** — browse the Power Automate cloud flows of an environment, read
   their definition as JSON or as a designer-style diagram, see child flows and
-  where each variable is set and read.
+  where each variable is set and read. **Flow tasks** check the flows of a task
+  out into a folder to edit, then compare and review every change.
 - **FetchXML Builder** — write FetchXML or build it with a tree and a
   properties panel that knows your tables, columns, relationships and choices
   (think of XrmToolBox's FetchXML Builder).
@@ -50,6 +51,10 @@ is only needed for the TDS endpoint and for INSERT / UPDATE / DELETE.
 - 🔁 **Flows** — every cloud flow of an environment with filters by owner,
   solution and status; a JSON view with an outline, and a read-only designer
   with a step panel (inputs, expressions, variables, child flows) and search.
+- 📁 **Flow tasks** — the flows of one task checked out into a folder you pick
+  (with a CLAUDE.md for whoever edits them); every save is compared with the
+  original and the cloud as a JSON diff or side by side in the designer, with
+  checks for broken references and a warning when the cloud changed meanwhile.
 - 🧩 **FetchXML Builder** — an XML editor with autocomplete (tables, the right
   table's columns, operators for the column's type, choice values) and a
   visual builder: a tree of the query plus a properties panel with column
