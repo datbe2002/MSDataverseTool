@@ -21,6 +21,7 @@ import {
   Shield,
   Globe,
   Gauge,
+  Folder,
 } from "./Icon";
 import { Logo } from "./Logo";
 import { UpdateNotice } from "./UpdateNotice";
@@ -49,7 +50,10 @@ export const NAV: { tool: string; items: { to: string; label: string; icon: type
   },
   {
     tool: "Power Automate",
-    items: [{ to: ROUTES.flows, label: "Flows", icon: Flow }],
+    items: [
+      { to: ROUTES.flows, label: "Flows", icon: Flow },
+      { to: ROUTES.flowtasks, label: "Tasks", icon: Folder },
+    ],
   },
   {
     tool: "Monitoring",

@@ -215,6 +215,39 @@ pub fn definition(host: &str, token: &str, flow_id: &str) -> AppResult<String> {
     Ok(pretty(raw))
 }
 
+/// A flow's definition with who changed it last (for flow tasks).
+pub struct FlowDefinition {
+    pub name: String,
+    /// Pretty-printed `clientdata`.
+    pub content: String,
+    pub modified_on: String,
+    pub modified_by: String,
+    pub managed: bool,
+}
+
+/// The flow's definition and name, owner of the last change, managed flag.
+pub fn definition_with_meta(host: &str, token: &str, flow_id: &str) -> AppResult<FlowDefinition> {
+    if !is_guid(flow_id) {
+        return Err(AppError::msg(format!("Invalid flow id: {}", flow_id)));
+    }
+    let url = format!(
+        "https://{}/api/data/v9.2/workflows({})?$select=clientdata,name,modifiedon,ismanaged,_modifiedby_value",
+        host, flow_id
+    );
+    let row = get_json(&url, token, Some("odata.include-annotations=\"OData.Community.Display.V1.FormattedValue\""))?;
+    let raw = str_field(&row, "clientdata");
+    if raw.is_empty() {
+        return Err(AppError::msg("This flow has no definition stored in Dataverse."));
+    }
+    Ok(FlowDefinition {
+        name: str_field(&row, "name"),
+        content: pretty(&raw),
+        modified_on: str_field(&row, "modifiedon"),
+        modified_by: formatted(&row, "_modifiedby_value"),
+        managed: row.get("ismanaged").and_then(|v| v.as_bool()).unwrap_or(false),
+    })
+}
+
 /// Pretty-prints JSON; text that isn't JSON is returned unchanged.
 pub fn pretty(raw: &str) -> String {
     serde_json::from_str::<Value>(raw)

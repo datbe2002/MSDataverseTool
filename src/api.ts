@@ -30,6 +30,12 @@ import type {
   RunPage,
   RunSummary,
   FlowList,
+  LiveTaskFlow,
+  NewFlowTask,
+  TaskLocation,
+  TaskSummary,
+  TaskVersion,
+  TaskView,
   JobDetail,
   JobFilter,
   JobPage,
@@ -114,6 +120,40 @@ export const api = {
     invoke<RunPage>("flow_runs", { connectionId, filter, next }),
   /** Runs and failures per flow and per hour since `since` (reads the whole window). */
   flowRunSummary: (connectionId: string, since: string) => invoke<RunSummary>("flow_run_summary", { connectionId, since }),
+
+  /** Every flow task folder the user created or opened, last opened first. */
+  flowTasks: () => invoke<TaskSummary[]>("flow_tasks"),
+  flowTaskDefaults: () => invoke<{ defaultRoot: string; gitAvailable: boolean }>("flow_task_defaults"),
+  /** Checks where a new task folder would go. */
+  flowTaskLocation: (parent: string, folder: string) => invoke<TaskLocation>("flow_task_location", { parent, folder }),
+  createFlowTask: (task: NewFlowTask) => invoke<TaskView>("create_flow_task", { task }),
+  /** Adds an existing task folder (with a task.json) to the list. */
+  openFlowTask: (path: string) => invoke<TaskView>("open_flow_task", { path }),
+  /** Takes a task off the list; the folder stays. */
+  forgetFlowTask: (path: string) => invoke<void>("forget_flow_task", { path }),
+  /** The task and its flows' files now (called again to notice edits). */
+  flowTask: (path: string) => invoke<TaskView>("flow_task", { path }),
+  updateFlowTask: (path: string, name: string, ticket: string, description: string, status: "open" | "done") =>
+    invoke<TaskView>("update_flow_task", { path, name, ticket, description, status }),
+  /** Reads the flows from the environment and checks them out into the task. */
+  addTaskFlows: (connectionId: string, path: string, flows: { id: string; name: string }[]) =>
+    invoke<TaskView>("add_task_flows", { connectionId, path, flows }),
+  /** Takes a flow out of the task (its files move to .hexa/removed). */
+  removeTaskFlow: (path: string, flowId: string) => invoke<TaskView>("remove_task_flow", { path, flowId }),
+  setTaskFlowReviewed: (path: string, flowId: string, hash: string | null) =>
+    invoke<TaskView>("set_task_flow_reviewed", { path, flowId, hash }),
+  /** Earlier versions of a task flow's file (git commits or snapshots), newest first. */
+  taskFlowVersions: (path: string, flowId: string) => invoke<TaskVersion[]>("task_flow_versions", { path, flowId }),
+  /** `version`: "baseline" | "working" | "git:<sha>" | "snap:<file>". */
+  taskFlowText: (path: string, flowId: string, version: string) => invoke<string>("task_flow_text", { path, flowId, version }),
+  /** The task's flows as they are in the environment now. */
+  taskLive: (connectionId: string, path: string) => invoke<LiveTaskFlow[]>("task_live", { connectionId, path }),
+  /** Reads a task flow from the cloud again as its baseline; "take" also replaces the edited file (edits kept in history). */
+  updateTaskBaseline: (connectionId: string, path: string, flowId: string, mode: "keep" | "take") =>
+    invoke<TaskView>("update_task_baseline", { connectionId, path, flowId, mode }),
+  revealFlowTask: (path: string) => invoke<void>("reveal_flow_task", { path }),
+  /** Folder picker; null when cancelled. */
+  pickFolder: (title: string, start: string | null) => invoke<string | null>("pick_folder", { title, start }),
 
   /** N:1, 1:N and N:N relationships of a table (for `<link-entity>`). */
   listRelationships: (connectionId: string, table: string) =>

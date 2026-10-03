@@ -26,6 +26,7 @@ import { StepSearchBox } from "./StepSearch";
 import { StepIcon } from "./StepIcon";
 import { FlowStepPanel, type PanelTab } from "./FlowStepPanel";
 import { ArrowUpRight, ChevronDown } from "./Icon";
+import type { DiffMark } from "../lib/flowTasks";
 
 interface Props {
   /** Connection the flow is in (choice labels are read from its tables). */
@@ -42,6 +43,11 @@ interface Props {
   childFlow: (flowId: string) => ChildFlow;
   onShowInJson: (step: OutlineNode) => void;
   theme: "dark" | "light";
+  /**
+   * Comparing two versions: steps carry what changed (by step id). The step
+   * panel and child flow buttons are left out; picking a step only selects it.
+   */
+  marks?: Map<string, DiffMark[]>;
 }
 
 interface NodeData extends Record<string, unknown> {
@@ -52,11 +58,33 @@ interface NodeData extends Record<string, unknown> {
   childName: string | null;
   onToggle: (id: string) => void;
   onOpenFlow: (id: string, from?: string) => void;
+  /** Compare mode: what changed in this step. */
+  marks?: DiffMark[];
+  /** Compare mode, a collapsed container: something inside changed. */
+  marksInside?: boolean;
+  /** Child flow buttons (not when comparing). */
+  links: boolean;
 }
 
 type FlowNode = Node<NodeData>;
 
 const SEP = "\u0001";
+
+const MARK_LABEL: Record<DiffMark, string> = {
+  added: "Added",
+  removed: "Removed",
+  changed: "Changed",
+  moved: "Moved",
+  renamed: "Renamed",
+};
+
+const MARK_COLOR: Record<DiffMark, string> = {
+  added: "var(--success)",
+  removed: "var(--danger)",
+  changed: "var(--warning)",
+  moved: "var(--info)",
+  renamed: "var(--info)",
+};
 
 function subtitle(step: OutlineNode, childName: string | null, hidden?: number) {
   const same = step.type.toLowerCase() === step.name.toLowerCase();
@@ -78,9 +106,15 @@ function CardBody({ data, children }: { data: NodeData; children?: React.ReactNo
   const step = data.g.step!;
   return (
     <div
-      className={`flow-card ${data.selected ? "is-selected" : ""} ${data.match ? "is-match" : ""}`}
+      className={`flow-card ${data.selected ? "is-selected" : ""} ${data.match ? "is-match" : ""} ${data.marks?.length ? `is-${data.marks[0]}` : ""}`}
       style={{ width: CARD_W, height: CARD_H }}
     >
+      {!!data.marks?.length && <span className={`flow-card-diff is-${data.marks[0]}`}>{data.marks.map((m) => MARK_LABEL[m]).join(" · ")}</span>}
+      {!data.marks?.length && data.marksInside && (
+        <span className="flow-card-diff is-inside" title="Something inside changed">
+          changes inside
+        </span>
+      )}
       <StepIcon step={step} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium leading-5">{step.name}</div>
@@ -93,7 +127,7 @@ function CardBody({ data, children }: { data: NodeData; children?: React.ReactNo
           !
         </span>
       )}
-      {step.childFlowId && data.childName && (
+      {step.childFlowId && data.childName && data.links && (
         <button
           className="btn btn-ghost btn-icon btn-sm nodrag shrink-0"
           title={`Open child flow “${data.childName}”`}
@@ -117,7 +151,7 @@ const CardNode = memo(function CardNode({ data }: NodeProps<FlowNode>) {
     <>
       <Handle type="target" position={Position.Top} id="in" isConnectable={false} style={hidden} />
       <CardBody data={data}>
-        {g.step!.childFlowId && data.childName && (
+        {g.step!.childFlowId && data.childName && data.links && (
           <button
             className="btn btn-ghost btn-icon btn-sm nodrag shrink-0"
             title="Show the child flow here"
@@ -216,7 +250,7 @@ export function FlowDesigner(props: Props) {
   );
 }
 
-function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName, onOpenFlow, childFlow, onShowInJson, theme }: Props) {
+function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName, onOpenFlow, childFlow, onShowInJson, theme, marks }: Props) {
   const rf = useReactFlow();
   const boxRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -318,10 +352,13 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
             childName: g.step?.childFlowId ? flowName(g.step.childFlowId) : null,
             onToggle: toggle,
             onOpenFlow,
+            marks: marks?.get(g.id),
+            marksInside: !!marks && g.hidden !== undefined && [...marks.keys()].some((id) => id.startsWith(g.id + SEP)),
+            links: !marks,
           },
         };
       }),
-    [graph, selectedId, flowName, toggle, onOpenFlow, searching, matchIds, exactIds]
+    [graph, selectedId, flowName, toggle, onOpenFlow, searching, matchIds, exactIds, marks]
   );
 
   const edges: Edge[] = useMemo(
@@ -398,8 +435,9 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
     }
     // Readable first: never below 60%, even if the widest part doesn't fit.
     const zoom = Math.min(1, Math.max(0.6, (box.clientWidth - 80) / graph.width));
-    void rf.setViewport({ x: (box.clientWidth - graph.width * zoom) / 2, y: 32, zoom });
-  }, [rf, graph, selectedId]);
+    // Narrow compare canvases wrap the toolbar onto a second row: start below it.
+    void rf.setViewport({ x: (box.clientWidth - graph.width * zoom) / 2, y: marks && box.clientWidth < 640 ? 88 : 32, zoom });
+  }, [rf, graph, selectedId, marks]);
 
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: FlowNode) => {
@@ -480,7 +518,11 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
             position="bottom-right"
             pannable
             zoomable
-            nodeColor={(n) => ((n as FlowNode).data.g.kind === "frame" ? "transparent" : "var(--line-strong)")}
+            nodeColor={(n) => {
+              const d = (n as FlowNode).data;
+              if (d.g.kind === "frame") return "transparent";
+              return d.marks?.length ? MARK_COLOR[d.marks[0]] : "var(--line-strong)";
+            }}
             nodeStrokeColor={(n) => ((n as FlowNode).data.g.kind === "frame" ? "var(--line-strong)" : "transparent")}
             nodeBorderRadius={4}
           />
@@ -489,7 +531,7 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
           Scroll to move · Ctrl + scroll to zoom
         </div>
       </div>
-      {selected && selected.kind !== "branch" && (
+      {selected && selected.kind !== "branch" && !marks && (
         <FlowStepPanel
           key={selected.id}
           connId={connId}

@@ -9,6 +9,7 @@ mod error;
 mod fetchxml;
 mod flowruns;
 mod flows;
+mod flowtasks;
 mod http;
 mod jobs;
 mod metadata;
@@ -615,6 +616,139 @@ async fn flow_run_summary(state: State<'_, AppState>, connection_id: String, sin
     on_env(state.inner(), &connection_id, move |host, token| flowruns::summary(host, token, &since)).await
 }
 
+/// Runs file / git work for flow tasks off the main thread.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> AppResult<T> + Send + 'static) -> AppResult<T> {
+    tokio::task::spawn_blocking(f).await.map_err(AppError::msg)?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FlowTaskDefaults {
+    default_root: String,
+    git_available: bool,
+}
+
+/// Every flow task folder the user created or opened.
+#[tauri::command]
+async fn flow_tasks() -> AppResult<Vec<flowtasks::TaskSummary>> {
+    blocking(|| Ok(flowtasks::list())).await
+}
+
+/// Where new tasks go by default, and whether git is installed.
+#[tauri::command]
+async fn flow_task_defaults() -> AppResult<FlowTaskDefaults> {
+    blocking(|| Ok(FlowTaskDefaults { default_root: flowtasks::default_root(), git_available: flowtasks::git_available() })).await
+}
+
+/// Checks where a new task folder would go (exists, inside a repo, OneDrive).
+#[tauri::command]
+async fn flow_task_location(parent: String, folder: String) -> AppResult<flowtasks::Location> {
+    blocking(move || Ok(flowtasks::check_location(&parent, &folder))).await
+}
+
+#[tauri::command]
+async fn create_flow_task(task: flowtasks::NewTask) -> AppResult<flowtasks::TaskView> {
+    blocking(move || flowtasks::create(task)).await
+}
+
+/// Adds an existing task folder (one with a task.json) to the list.
+#[tauri::command]
+async fn open_flow_task(path: String) -> AppResult<flowtasks::TaskView> {
+    blocking(move || flowtasks::open(&path)).await
+}
+
+/// Takes a task off the list; the folder stays.
+#[tauri::command]
+async fn forget_flow_task(path: String) -> AppResult<()> {
+    blocking(move || flowtasks::forget(&path)).await
+}
+
+/// The task and the state of its flows' files (called again to notice edits).
+#[tauri::command]
+async fn flow_task(path: String) -> AppResult<flowtasks::TaskView> {
+    blocking(move || flowtasks::load(&path)).await
+}
+
+#[tauri::command]
+async fn update_flow_task(path: String, name: String, ticket: String, description: String, status: String) -> AppResult<flowtasks::TaskView> {
+    blocking(move || flowtasks::update_details(&path, &name, &ticket, &description, &status)).await
+}
+
+/// Reads flows from the environment and checks them out into the task.
+#[tauri::command]
+async fn add_task_flows(
+    state: State<'_, AppState>,
+    connection_id: String,
+    path: String,
+    flows: Vec<flowtasks::AddFlow>,
+) -> AppResult<flowtasks::TaskView> {
+    on_env(state.inner(), &connection_id, move |host, token| flowtasks::add_flows(&path, host, token, &flows)).await
+}
+
+#[tauri::command]
+async fn remove_task_flow(path: String, flow_id: String) -> AppResult<flowtasks::TaskView> {
+    blocking(move || flowtasks::remove_flow(&path, &flow_id)).await
+}
+
+/// Marks the working version (`hash`) as reviewed; null clears it.
+#[tauri::command]
+async fn set_task_flow_reviewed(path: String, flow_id: String, hash: Option<String>) -> AppResult<flowtasks::TaskView> {
+    blocking(move || flowtasks::set_reviewed(&path, &flow_id, hash)).await
+}
+
+/// Earlier versions of a task flow's file (git commits or snapshots), newest first.
+#[tauri::command]
+async fn task_flow_versions(path: String, flow_id: String) -> AppResult<Vec<flowtasks::Version>> {
+    blocking(move || flowtasks::versions(&path, &flow_id)).await
+}
+
+/// The text of a version: baseline, working, git:<sha>, snap:<file>.
+#[tauri::command]
+async fn task_flow_text(path: String, flow_id: String, version: String) -> AppResult<String> {
+    blocking(move || flowtasks::version_text(&path, &flow_id, &version)).await
+}
+
+/// The task's flows as they are in the environment now.
+#[tauri::command]
+async fn task_live(state: State<'_, AppState>, connection_id: String, path: String) -> AppResult<Vec<flowtasks::LiveFlow>> {
+    on_env(state.inner(), &connection_id, move |host, token| flowtasks::live(&path, host, token)).await
+}
+
+/// Reads a task flow from the environment again as its baseline; `mode` says what happens to the edits.
+#[tauri::command]
+async fn update_task_baseline(
+    state: State<'_, AppState>,
+    connection_id: String,
+    path: String,
+    flow_id: String,
+    mode: flowtasks::BaselineMode,
+) -> AppResult<flowtasks::TaskView> {
+    on_env(state.inner(), &connection_id, move |host, token| flowtasks::update_baseline(&path, host, token, &flow_id, mode)).await
+}
+
+/// Opens the task folder in Explorer.
+#[tauri::command]
+async fn reveal_flow_task(path: String) -> AppResult<()> {
+    blocking(move || flowtasks::reveal(&path)).await
+}
+
+/// Folder picker (for a task's location, or an existing task); None when cancelled.
+#[tauri::command]
+async fn pick_folder(window: tauri::WebviewWindow, title: String, start: Option<String>) -> AppResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tokio::task::spawn_blocking(move || {
+        let mut dialog = window.dialog().file().set_parent(&window).set_title(title);
+        if let Some(start) = start.filter(|s| std::path::Path::new(s).is_dir()) {
+            dialog = dialog.set_directory(start);
+        }
+        dialog.blocking_pick_folder()
+    })
+    .await
+    .map_err(AppError::msg)?;
+    let Some(picked) = picked else { return Ok(None) };
+    Ok(Some(picked.into_path().map_err(AppError::msg)?.to_string_lossy().to_string()))
+}
+
 /// Plug-in assemblies, types, service endpoints and a slim index of every step.
 #[tauri::command]
 async fn plugin_overview(state: State<'_, AppState>, connection_id: String, hide_microsoft: bool) -> AppResult<plugins::Overview> {
@@ -1174,6 +1308,23 @@ pub fn run() {
             flow_calls,
             flow_runs,
             flow_run_summary,
+            flow_tasks,
+            flow_task_defaults,
+            flow_task_location,
+            create_flow_task,
+            open_flow_task,
+            forget_flow_task,
+            flow_task,
+            update_flow_task,
+            add_task_flows,
+            remove_task_flow,
+            set_task_flow_reviewed,
+            task_flow_versions,
+            task_flow_text,
+            task_live,
+            update_task_baseline,
+            reveal_flow_task,
+            pick_folder,
             run_fetchxml,
             list_relationships,
             list_views,

@@ -9,6 +9,7 @@ import { ROUTES, flowRoute } from "../lib/navigation";
 import { FlowOutline } from "./FlowOutline";
 import { FlowDesigner } from "./FlowDesigner";
 import { FlowRunsTab } from "./FlowRuns";
+import { AddToTask } from "./FlowTaskDialogs";
 import { rangeLabel, runSummaries, useMonitorRange } from "../lib/flowRuns";
 import { relativeTime } from "../lib/history";
 import { EDITOR_THEME } from "../lib/monacoTheme";
@@ -597,7 +598,8 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
               {flow.modifiedBy && ` by ${flow.modifiedBy}`}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <AddToTask connId={connId} flow={flow} />
             <button className="btn btn-secondary" disabled={!definition} onClick={() => copy(definition ?? "", "definition")}>
               <Copy size={14} /> Copy JSON
             </button>

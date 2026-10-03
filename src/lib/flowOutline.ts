@@ -171,6 +171,13 @@ function describe(type: string, inputs: unknown): string | null {
   return null;
 }
 
+const RUN_STATUSES = ["Succeeded", "Failed", "Skipped", "TimedOut"];
+
+/** A runAfter status as the classic designer writes it; the new one writes "SUCCEEDED" (they're case-insensitive). */
+export function runStatus(status: string): string {
+  return RUN_STATUSES.find((s) => s.toLowerCase() === status.toLowerCase()) ?? status;
+}
+
 const RUN_AFTER: Record<string, string> = {
   Succeeded: "succeeds",
   Failed: "fails",
@@ -184,7 +191,7 @@ function runAfterNote(runAfter: unknown): string | null {
   const notes: string[] = [];
   let unusual = false;
   for (const [dep, statuses] of Object.entries(runAfter)) {
-    const list = Array.isArray(statuses) ? statuses.filter((s): s is string => typeof s === "string") : [];
+    const list = Array.isArray(statuses) ? statuses.filter((s): s is string => typeof s === "string").map(runStatus) : [];
     if (list.some((s) => s !== "Succeeded")) unusual = true;
     notes.push(`${pretty(dep)} ${list.map((s) => RUN_AFTER[s] ?? s.toLowerCase()).join(" or ")}`);
   }
@@ -243,7 +250,7 @@ function runAfterMap(runAfter: unknown): Record<string, string[]> {
   return Object.fromEntries(
     Object.entries(runAfter).map(([dep, statuses]) => [
       dep,
-      Array.isArray(statuses) ? statuses.filter((s): s is string => typeof s === "string") : [],
+      Array.isArray(statuses) ? statuses.filter((s): s is string => typeof s === "string").map(runStatus) : [],
     ])
   );
 }

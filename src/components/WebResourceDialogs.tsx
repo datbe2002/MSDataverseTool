@@ -19,7 +19,7 @@ export function useTarget(connId: string): { conn: Connection | null; danger: bo
   return { conn, danger: !!conn?.tag && tagStyle(conn.color).danger };
 }
 
-function EnvBox({ conn }: { conn: Connection | null }) {
+export function EnvBox({ conn }: { conn: Connection | null }) {
   if (!conn) return null;
   const style = conn.tag ? tagStyle(conn.color) : null;
   return (

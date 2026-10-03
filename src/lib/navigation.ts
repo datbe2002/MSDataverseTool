@@ -7,6 +7,7 @@ export const ROUTES = {
   schema: "/sql/schema",
   history: "/sql/history",
   flows: "/flows",
+  flowtasks: "/flowtasks",
   fetchxml: "/fetchxml",
   traces: "/traces",
   jobs: "/jobs",
@@ -19,6 +20,10 @@ export const ROUTES = {
 
 /** A flow in the Flows tool; the id is the `workflow` row's id. */
 export const flowRoute = (flowId: string) => `${ROUTES.flows}/${flowId}`;
+
+/** A flow task (by folder path), optionally at one of its flows. */
+export const flowTaskRoute = (path: string, flowId?: string | null) =>
+  `${ROUTES.flowtasks}?task=${encodeURIComponent(path)}${flowId ? `&flow=${encodeURIComponent(flowId)}` : ""}`;
 
 /** A plug-in trace log; the id is the `plugintracelog` row's id. */
 export const traceRoute = (traceId: string) => `${ROUTES.traces}/${traceId}`;

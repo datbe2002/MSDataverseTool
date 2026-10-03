@@ -351,6 +351,27 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
     box-shadow: 0 0 0 2px color-mix(in oklab, var(--warning) 28%, transparent), var(--shadow-sm);
   }
   .hexa-flow .react-flow__node.is-dimmed { opacity: 0.32; transition: opacity 0.15s; }
+  /* Comparing two versions (Flow tasks › Visual). */
+  .flow-card.is-added { border-color: var(--success); background: color-mix(in oklab, var(--success) 9%, var(--s2)); }
+  .flow-card.is-removed { border-color: var(--danger); background: color-mix(in oklab, var(--danger) 9%, var(--s2)); border-style: dashed; }
+  .flow-card.is-changed { border-color: var(--warning); background: color-mix(in oklab, var(--warning) 8%, var(--s2)); }
+  .flow-card.is-moved, .flow-card.is-renamed { border-color: var(--info); background: color-mix(in oklab, var(--info) 8%, var(--s2)); }
+  .flow-card-diff {
+    position: absolute; top: -9px; left: 10px; height: 17px; padding: 0 6px; border-radius: 4px;
+    display: flex; align-items: center; font-size: 10.5px; font-weight: 600; line-height: 1;
+    background: var(--s3); color: var(--muted); border: 1px solid var(--line-strong); white-space: nowrap;
+  }
+  .flow-card-diff.is-added { background: var(--success); color: var(--bg); border-color: transparent; }
+  .flow-card-diff.is-removed { background: var(--danger); color: var(--bg); border-color: transparent; }
+  .flow-card-diff.is-changed { background: var(--warning); color: var(--bg); border-color: transparent; }
+  .flow-card-diff.is-moved, .flow-card-diff.is-renamed { background: var(--info); color: var(--bg); border-color: transparent; }
+  .flow-card-diff.is-inside { color: var(--warning); border-color: color-mix(in oklab, var(--warning) 45%, transparent); }
+  .flow-legend { width: 10px; height: 10px; border-radius: 3px; border: 1.5px solid var(--line-strong); }
+  .flow-legend.is-added { border-color: var(--success); background: color-mix(in oklab, var(--success) 25%, transparent); }
+  .flow-legend.is-removed { border-color: var(--danger); background: color-mix(in oklab, var(--danger) 25%, transparent); }
+  .flow-legend.is-changed { border-color: var(--warning); background: color-mix(in oklab, var(--warning) 25%, transparent); }
+  .flow-legend.is-moved { border-color: var(--info); background: color-mix(in oklab, var(--info) 25%, transparent); }
+  .flow-card.is-selected:is(.is-added, .is-removed, .is-changed, .is-moved, .is-renamed) { border-color: var(--brand); border-style: solid; }
   .flow-card-flag {
     position: absolute; top: -7px; right: -7px; width: 16px; height: 16px; border-radius: 999px;
     display: grid; place-items: center; font-size: 10px; font-weight: 700;

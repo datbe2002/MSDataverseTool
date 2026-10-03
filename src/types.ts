@@ -192,6 +192,115 @@ export interface FlowCall {
   child: string;
 }
 
+/** The environment a flow task works on. */
+export interface TaskEnv {
+  host: string;
+  name: string;
+}
+
+/** A flow checked out into a task (`task.json`). */
+export interface TaskFlow {
+  /** `workflow` id, lowercase. */
+  id: string;
+  name: string;
+  /** Folder under `flows/`. */
+  folder: string;
+  addedOn: string;
+  /** The flow's `modifiedon` when it was added. */
+  cloudModifiedOn: string;
+  cloudModifiedBy: string;
+  baselineHash: string;
+  /** Hash of the working version marked as reviewed. */
+  reviewedHash: string | null;
+  /** When the baseline was read from the cloud again; null = when added. */
+  baselineOn: string | null;
+}
+
+export interface TaskFile {
+  version: number;
+  id: string;
+  name: string;
+  ticket: string;
+  description: string;
+  env: TaskEnv;
+  createdOn: string;
+  status: "open" | "done";
+  flows: TaskFlow[];
+}
+
+/** A task in the list of task folders. */
+export interface TaskSummary {
+  path: string;
+  id: string;
+  name: string;
+  env: TaskEnv | null;
+  status: "open" | "done";
+  flowIds: string[];
+  createdOn: string;
+  lastOpened: string;
+  /** The folder or its task.json is gone. */
+  missing: boolean;
+}
+
+/** A task flow's file on disk now. */
+export interface TaskFlowFile {
+  id: string;
+  /** Relative to the task folder, e.g. `flows/Invoice-Sync__3f2a9c1e/definition.json`. */
+  file: string;
+  /** Hash of the JSON (keys sorted, no whitespace); null when missing or not JSON. */
+  workingHash: string | null;
+  error: string | null;
+  modifiedAt: string | null;
+}
+
+export interface TaskView {
+  path: string;
+  task: TaskFile;
+  git: { available: boolean; repo: boolean };
+  flows: TaskFlowFile[];
+  /** Set by a change when something besides it failed (a git commit). */
+  warning: string | null;
+}
+
+/** Where a new task folder would go. */
+export interface TaskLocation {
+  path: string;
+  problem: string | null;
+  exists: boolean;
+  notEmpty: boolean;
+  insideRepo: string | null;
+  oneDrive: boolean;
+  gitAvailable: boolean;
+}
+
+export interface NewFlowTask {
+  parent: string;
+  folder: string;
+  name: string;
+  ticket: string;
+  description: string;
+  env: TaskEnv;
+  git: boolean;
+}
+
+/** An earlier version of a task flow's file: `git:<sha>` or `snap:<file>`. */
+export interface TaskVersion {
+  id: string;
+  label: string;
+  at: string;
+}
+
+/** A task flow as it is in the environment now. */
+export interface LiveTaskFlow {
+  id: string;
+  name: string;
+  content: string | null;
+  hash: string | null;
+  modifiedOn: string;
+  modifiedBy: string;
+  error: string | null;
+}
+
 /** What a flow run ended as, whatever its `status` spelling. */
 export type RunOutcome = "failed" | "succeeded" | "cancelled" | "running" | "other";
 
