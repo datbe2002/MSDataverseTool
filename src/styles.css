@@ -139,6 +139,23 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
   .switch:disabled { opacity: 0.45; cursor: not-allowed; }
   @media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
 
+  /* ---------- Checkbox: every one in the app is round, brand fill + white tick when checked ---------- */
+  input[type="checkbox"] {
+    appearance: none; flex-shrink: 0; width: 16px; height: 16px; margin: 0;
+    border-radius: 999px; border: 1.5px solid var(--line-strong); background-color: transparent;
+    cursor: pointer; transition: background-color 0.12s ease, border-color 0.12s ease;
+  }
+  input[type="checkbox"]:hover:not(:disabled):not(:checked),
+  label:hover > input[type="checkbox"]:not(:disabled):not(:checked) { border-color: var(--subtle); }
+  input[type="checkbox"]:checked {
+    border-color: transparent;
+    background: var(--brand-solid) center / 10px no-repeat
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  }
+  input[type="checkbox"]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.5; }
+  @media (prefers-reduced-motion: reduce) { input[type="checkbox"] { transition: none; } }
+
   /* ---------- Buttons ---------- */
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;

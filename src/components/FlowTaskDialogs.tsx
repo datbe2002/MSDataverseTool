@@ -203,7 +203,7 @@ export function NewTaskDialog({
         </div>
 
         <label className="flex items-start gap-2.5 text-sm">
-          <input type="checkbox" className="mt-0.5 accent-[var(--brand)]" checked={git && !gitBlocked} disabled={!!gitBlocked} onChange={(e) => setGit(e.target.checked)} />
+          <input type="checkbox" className="mt-0.5" checked={git && !gitBlocked} disabled={!!gitBlocked} onChange={(e) => setGit(e.target.checked)} />
           <span>
             Keep a git history in the folder
             <span className="block text-xs text-subtle">
@@ -347,7 +347,7 @@ export function AddFlowsDialog({ connId, view, onAdded, onClose }: { connId: str
               return (
                 <li key={f.id}>
                   <label className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 ${disabled ? "opacity-60" : "cursor-pointer hover:bg-s3"}`}>
-                    <input type="checkbox" className="accent-[var(--brand)]" checked={already || picked.has(f.id)} disabled={disabled} onChange={() => toggle(f)} />
+                    <input type="checkbox" checked={already || picked.has(f.id)} disabled={disabled} onChange={() => toggle(f)} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px]">{f.name || "(no name)"}</span>
                       <span className="block truncate text-xs text-subtle">{f.solutions.join(", ") || "Not in a solution"}</span>

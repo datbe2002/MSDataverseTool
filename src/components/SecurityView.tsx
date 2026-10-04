@@ -133,7 +133,7 @@ function PrivilegeMatrix({ matrix, sources, emptyText }: { matrix: Matrix; sourc
           <input className="input !h-8 !pl-7 !text-[12.5px]" placeholder="Filter tables…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter tables" />
         </div>
         <label className="flex cursor-pointer items-center gap-1.5 text-[12.5px] text-muted">
-          <input type="checkbox" checked={only} onChange={(e) => setOnly(e.target.checked)} className="accent-[var(--brand)]" />
+          <input type="checkbox" checked={only} onChange={(e) => setOnly(e.target.checked)} />
           {compare ? "Only differences" : "Only tables with access"}
         </label>
         <span className="ml-auto">
@@ -314,11 +314,11 @@ function UsersTab({ connId }: { connId: string }) {
         extra={
           <div className="flex gap-4 px-4 pt-2 text-[12px] text-muted">
             <label className="flex cursor-pointer items-center gap-1.5">
-              <input type="checkbox" checked={hideDisabled} onChange={(e) => setHideDisabled(e.target.checked)} className="accent-[var(--brand)]" />
+              <input type="checkbox" checked={hideDisabled} onChange={(e) => setHideDisabled(e.target.checked)} />
               Hide disabled
             </label>
             <label className="flex cursor-pointer items-center gap-1.5">
-              <input type="checkbox" checked={hideApps} onChange={(e) => setHideApps(e.target.checked)} className="accent-[var(--brand)]" />
+              <input type="checkbox" checked={hideApps} onChange={(e) => setHideApps(e.target.checked)} />
               Hide app &amp; system users
             </label>
           </div>

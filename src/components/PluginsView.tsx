@@ -184,11 +184,11 @@ export function PluginsView() {
         </div>
         <div className="flex items-center gap-4 px-4 pt-2.5 text-[12px] text-muted">
           <label className="flex cursor-pointer items-center gap-1.5" title="Microsoft.* assemblies (Dynamics 365 apps) — thousands of steps">
-            <input type="checkbox" checked={hideMs} onChange={(e) => setHideMs(e.target.checked)} className="accent-[var(--brand)]" />
+            <input type="checkbox" checked={hideMs} onChange={(e) => setHideMs(e.target.checked)} />
             Hide Microsoft
           </label>
           <label className="flex cursor-pointer items-center gap-1.5">
-            <input type="checkbox" checked={hideDisabled} onChange={(e) => setHideDisabled(e.target.checked)} className="accent-[var(--brand)]" />
+            <input type="checkbox" checked={hideDisabled} onChange={(e) => setHideDisabled(e.target.checked)} />
             Hide disabled
           </label>
           <button className="btn btn-ghost btn-sm ml-auto" onClick={() => setOpen(new Set())} disabled={!open.size}>

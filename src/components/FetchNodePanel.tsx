@@ -82,7 +82,7 @@ function TextField({
 function Check({ label, checked, onChange, hint }: { label: string; checked: boolean; onChange: (v: boolean) => void; hint?: string }) {
   return (
     <label className="flex items-center gap-2 text-[12.5px] text-fg" title={hint}>
-      <input type="checkbox" className="accent-[var(--brand)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
   );
@@ -418,7 +418,7 @@ function ColumnChecklist({ connId, el, onEdit }: Props) {
           <input className="input h-7 !pl-7 text-[12px]" placeholder="Find a column…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <label className="flex shrink-0 items-center gap-1 text-[11px] text-subtle" title="Show only the columns in the query">
-          <input type="checkbox" className="accent-[var(--brand)]" checked={onlyPicked} onChange={(e) => setOnlyPicked(e.target.checked)} />
+          <input type="checkbox" checked={onlyPicked} onChange={(e) => setOnlyPicked(e.target.checked)} />
           Picked
         </label>
       </div>
@@ -436,7 +436,7 @@ function ColumnChecklist({ connId, el, onEdit }: Props) {
               >
                 <input
                   type="checkbox"
-                  className="mt-0.5 shrink-0 accent-[var(--brand)]"
+                  className="mt-0.5 shrink-0"
                   checked={picked.has(c.logicalName)}
                   onChange={(e) => {
                     const on = e.target.checked;
@@ -783,7 +783,6 @@ function ConditionProps({ connId, el, onEdit }: Props) {
                   <label className="flex items-center gap-2 px-2 py-1 text-[12px] hover:bg-s3">
                     <input
                       type="checkbox"
-                      className="accent-[var(--brand)]"
                       checked={values.includes(String(o.value))}
                       onChange={(ev) =>
                         writeValues(ev.target.checked ? [...values, String(o.value)] : values.filter((v) => v !== String(o.value)))
