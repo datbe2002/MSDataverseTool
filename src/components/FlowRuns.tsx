@@ -21,12 +21,15 @@ import {
   runByName,
   runSummaries,
   useFlowRuns,
+  checkRunAccess,
+  useRunAccess,
   type Bar,
   type RunRange,
 } from "../lib/flowRuns";
 import { IdList, ListSkeleton } from "./LogParts";
-import { Activity, ArrowUpRight, Copy, Loader, Refresh, Search } from "./Icon";
-import type { FlowMeta, RunRow } from "../types";
+import { Modal } from "./Modals";
+import { Activity, ArrowUpRight, Copy, Loader, Refresh, Search, Shield } from "./Icon";
+import type { FlowMeta, RunReadDepth, RunRow } from "../types";
 
 /** A run in a list: status dot, time, duration, the error's first line. */
 export function RunItem({
@@ -382,6 +385,7 @@ export function FlowRunsTab({
   const stats = summary?.flows.find((f) => f.flowId === flowId) ?? null;
   const listRef = useRef<HTMLUListElement>(null);
 
+  useEffect(() => checkRunAccess(connId), [connId]);
   useEffect(() => {
     if (filters.flowId !== flowId) setFilters(connId, { flowId });
   }, [connId, flowId, filters.flowId, setFilters]);
@@ -545,5 +549,75 @@ export function FlowRunsTab({
         )}
       </div>
     </div>
+  );
+}
+
+/** What each read depth short of "global" lets the account see. */
+export const RUN_SCOPE: Record<Exclude<RunReadDepth, "global">, string> = {
+  none: "no runs at all",
+  basic: "only runs of flows it owns",
+  local: "only runs of flows owned by people in its business unit",
+  deep: "only runs of flows owned by people in its business unit and the units below it",
+};
+
+/** This account can't see every run of an environment (see `useRunAccess`). */
+export function RunAccessModal() {
+  const denied = useRunAccess((s) => s.denied);
+  const dismiss = useRunAccess((s) => s.dismiss);
+  const connection = useStore((s) => s.connections.find((c) => c.id === denied?.connId) ?? null);
+  const account = useStore((s) => s.projects.find((p) => p.id === connection?.projectId)?.username ?? null);
+  const pushToast = useStore((s) => s.pushToast);
+  if (!denied || denied.depth === "global") return null;
+
+  const none = denied.depth === "none";
+  const env = connection?.name ?? "this environment";
+  const request = [
+    `Please give ${account ?? "my account"} ${none ? "" : "Organization-level "}read access to the Flow Run table (privilege prvReadflowrun)`,
+    `in ${connection ? `${connection.name} (${connection.url})` : "this environment"},`,
+    "so I can see the cloud flow run history of every flow.",
+  ].join(" ");
+  const copy = () =>
+    navigator.clipboard
+      .writeText(request)
+      .then(() => pushToast({ tone: "success", title: "Copied the request" }))
+      .catch(() => pushToast({ tone: "error", title: "Couldn't copy the request" }));
+  const who = account ? <span className="font-medium text-fg">{account}</span> : "This account";
+
+  return (
+    <Modal
+      title={none ? "No access to flow runs" : "Limited access to flow runs"}
+      icon={<Shield size={15} className="text-warning" />}
+      onClose={dismiss}
+      width="max-w-md"
+    >
+      <div className="space-y-4">
+        <p className="text-sm leading-relaxed text-muted">
+          {none ? (
+            <>
+              {who} doesn't have permission to see cloud flow run history in <span className="font-medium text-fg">{env}</span>.
+            </>
+          ) : (
+            <>
+              In <span className="font-medium text-fg">{env}</span>, {who} can see {RUN_SCOPE[denied.depth]}. Runs of other flows
+              are hidden, so counts and lists show fewer runs than there are, or none.
+            </>
+          )}
+        </p>
+        <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-sm leading-relaxed">
+          {none ? "It needs read access" : <>It needs <span className="font-medium">Organization</span>-level read access</>} to the{" "}
+          <span className="font-medium">Flow Run</span> table (<span className="font-mono text-[12.5px]">prvReadflowrun</span>). Ask an admin
+          to add it to one of your security roles, then press Refresh.
+        </p>
+        <p className="text-xs text-subtle">Flows and their definitions still work; only run history and the Flow runs monitor need this.</p>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={copy}>
+            <Copy size={14} /> Copy request for admin
+          </button>
+          <button className="btn btn-primary" onClick={dismiss} autoFocus>
+            OK
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }

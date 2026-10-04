@@ -356,6 +356,9 @@ export interface FlowRunStats {
 }
 
 /** Runs and failures of every flow since a time (`flow_run_summary`). */
+/** prvReadflowrun depth; "basic" sees only runs of flows the account owns. */
+export type RunReadDepth = "none" | "basic" | "local" | "deep" | "global";
+
 export interface RunSummary {
   since: string;
   until: string;

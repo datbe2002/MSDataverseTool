@@ -5,7 +5,7 @@ import { create } from "zustand";
 import { api } from "../api";
 import { createPagedStore } from "./pagedStore";
 import { createEnvCache } from "./envCache";
-import type { RunOutcome, RunPage, RunRow, RunSummary } from "../types";
+import type { RunOutcome, RunPage, RunReadDepth, RunRow, RunSummary } from "../types";
 
 export type RunRange = "1h" | "24h" | "7d" | "28d";
 
@@ -40,11 +40,58 @@ export interface RunFilters {
   flowId: string;
 }
 
+/**
+ * How far this account can read `flowrun` per environment (prvReadflowrun depth).
+ * Below "global" Dataverse quietly returns fewer rows (each run belongs to its
+ * flow's owner), so 0 runs can mean "not allowed to see them".
+ */
+export const runReadDepth = createEnvCache<RunReadDepth>((connId) => api.flowRunAccess(connId));
+
+/** Every run of the environment is visible. */
+export const seesAllRuns = (depth: RunReadDepth | undefined) => depth === undefined || depth === "global";
+
+/**
+ * The environment where this account can't see all runs — App shows a dialog for
+ * it. Once per environment per session.
+ */
+export const useRunAccess = create<{
+  denied: { connId: string; depth: RunReadDepth } | null;
+  seen: Record<string, true>;
+  deny: (connId: string, depth: RunReadDepth) => void;
+  dismiss: () => void;
+}>((set, get) => ({
+  denied: null,
+  seen: {},
+  deny: (connId, depth) => {
+    if (get().seen[connId]) return;
+    set((s) => ({ denied: { connId, depth }, seen: { ...s.seen, [connId]: true } }));
+  },
+  dismiss: () => set({ denied: null }),
+}));
+
+/** Reads the depth once and opens the dialog when it's short of "global"; a failed check stays quiet. */
+export function checkRunAccess(connId: string) {
+  runReadDepth
+    .load(connId, "")
+    .then((depth) => !seesAllRuns(depth) && useRunAccess.getState().deny(connId, depth))
+    .catch(() => {});
+}
+
+/** The backend's `flowruns::explain` names the privilege on any 403. */
+export const isNoRunAccess = (e: unknown) => String((e as Error)?.message ?? e).includes("prvReadflowrun");
+
+function guarded<T>(connId: string, p: Promise<T>): Promise<T> {
+  return p.catch((e) => {
+    if (isNoRunAccess(e)) useRunAccess.getState().deny(connId, "none");
+    throw e;
+  });
+}
+
 function pagedRuns(defaults: RunFilters) {
   return createPagedStore<RunFilters, RunRow, RunPage, never>({
     defaults,
     fetchPage: (connId, f, next) =>
-      api.flowRuns(connId, next ? {} : { since: runSince(f.range), flowId: f.flowId || null, status: f.status || null }, next),
+      guarded(connId, api.flowRuns(connId, next ? {} : { since: runSince(f.range), flowId: f.flowId || null, status: f.status || null }, next)),
     fetchDetail: () => Promise.reject(new Error("Runs have no separate detail")),
   });
 }
@@ -60,16 +107,18 @@ export const useMonitorRuns = monitorStore.useStore;
 export const monitorRunFiltersOf = monitorStore.filtersOf;
 
 /** Summaries per environment, keyed by range; the window ends when it's read. */
-export const runSummaries = createEnvCache<RunSummary>((connId, range) => api.flowRunSummary(connId, runSince(range as RunRange)));
+export const runSummaries = createEnvCache<RunSummary>((connId, range) =>
+  guarded(connId, api.flowRunSummary(connId, runSince(range as RunRange)))
+);
 
 /** A run by its name (a child run's `parentRunId`); null when Dataverse doesn't have it. */
 export const runByName = createEnvCache<RunRow | null>((connId, name) =>
-  api.flowRuns(connId, { runName: name }, null).then((p) => p.rows[0] ?? null)
+  guarded(connId, api.flowRuns(connId, { runName: name }, null)).then((p) => p.rows[0] ?? null)
 );
 
 /** The child flow runs a run started (first page, newest first). */
 export const childRuns = createEnvCache<RunRow[]>((connId, name) =>
-  api.flowRuns(connId, { parentRun: name }, null).then((p) => p.rows)
+  guarded(connId, api.flowRuns(connId, { parentRun: name }, null)).then((p) => p.rows)
 );
 
 export const OUTCOME_LABEL: Record<RunOutcome, string> = {

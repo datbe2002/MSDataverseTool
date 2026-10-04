@@ -5,13 +5,16 @@ import { useFlows } from "../lib/flows";
 import {
   RUN_RANGES,
   bars as toBars,
+  checkRunAccess,
   errorGist,
   errorText,
   failRate,
   monitorRunFiltersOf,
   rangeLabel,
   retentionLabel,
+  runReadDepth,
   runSummaries,
+  seesAllRuns,
   useMonitorRange,
   useMonitorRuns,
   type RunRange,
@@ -19,7 +22,7 @@ import {
 import { logTime } from "../lib/pagedStore";
 import { relativeTime } from "../lib/history";
 import { flowRoute } from "../lib/navigation";
-import { RunChart, RunFamily, RunItem } from "./FlowRuns";
+import { RUN_SCOPE, RunChart, RunFamily, RunItem } from "./FlowRuns";
 import { Activity, AlertTriangle, ArrowUpRight, Copy, Loader, Refresh, Search, X } from "./Icon";
 import type { FlowRunStats, RunRow } from "../types";
 
@@ -38,6 +41,10 @@ export function FlowRunsView() {
   useEffect(() => {
     if (activeId) loadFlows(activeId);
   }, [activeId, loadFlows]);
+  useEffect(() => {
+    if (activeId) checkRunAccess(activeId);
+  }, [activeId]);
+  const depth = runReadDepth.useStore((st) => (activeId ? st.data[`${activeId}|`] : undefined));
 
   // Another environment: the picked flow isn't there. Not on first render, so a deep link keeps it.
   const prevActiveId = useRef(activeId);
@@ -131,6 +138,13 @@ export function FlowRunsView() {
             </button>
           </div>
         </div>
+
+        {depth && !seesAllRuns(depth) && depth !== "none" && (
+          <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
+            This account can see {RUN_SCOPE[depth]} (read on Flow Run below Organization level), so the figures below can be lower than
+            the real ones.
+          </p>
+        )}
 
         {summary.error && !s ? (
           <div className="card flex flex-col items-center gap-2 px-8 py-12 text-center">

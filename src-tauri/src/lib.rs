@@ -610,6 +610,12 @@ async fn flow_runs(
     on_env(state.inner(), &connection_id, move |host, token| flowruns::list(host, token, &filter, next.as_deref())).await
 }
 
+/// How far this account can read `flowrun`: "none", "basic", "local", "deep" or "global".
+#[tauri::command]
+async fn flow_run_access(state: State<'_, AppState>, connection_id: String) -> AppResult<String> {
+    on_env(state.inner(), &connection_id, flowruns::read_depth).await
+}
+
 /// Runs and failures per flow and per hour since `since`.
 #[tauri::command]
 async fn flow_run_summary(state: State<'_, AppState>, connection_id: String, since: String) -> AppResult<flowruns::RunSummary> {
@@ -1308,6 +1314,7 @@ pub fn run() {
             flow_calls,
             flow_runs,
             flow_run_summary,
+            flow_run_access,
             flow_tasks,
             flow_task_defaults,
             flow_task_location,

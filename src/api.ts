@@ -29,6 +29,7 @@ import type {
   RunFilter,
   RunPage,
   RunSummary,
+  RunReadDepth,
   FlowList,
   LiveTaskFlow,
   NewFlowTask,
@@ -120,6 +121,8 @@ export const api = {
     invoke<RunPage>("flow_runs", { connectionId, filter, next }),
   /** Runs and failures per flow and per hour since `since` (reads the whole window). */
   flowRunSummary: (connectionId: string, since: string) => invoke<RunSummary>("flow_run_summary", { connectionId, since }),
+  /** How far this account can read `flowrun` (prvReadflowrun depth). */
+  flowRunAccess: (connectionId: string) => invoke<RunReadDepth>("flow_run_access", { connectionId }),
 
   /** Every flow task folder the user created or opened, last opened first. */
   flowTasks: () => invoke<TaskSummary[]>("flow_tasks"),

@@ -246,6 +246,34 @@ pub fn explain(e: AppError) -> AppError {
     }
 }
 
+/// How far this account's read on `flowrun` reaches: "none", "basic" (only runs of
+/// flows it owns — each run belongs to its flow's owner), "local", "deep" or "global".
+/// Dataverse answers a "basic" reader with no rows rather than a 403, so the app asks.
+pub fn read_depth(host: &str, token: &str) -> AppResult<String> {
+    let who = get_json(&format!("{}/WhoAmI", base(host)), token, None)?;
+    let user = guid(who["UserId"].as_str().unwrap_or_default(), "user id")?;
+    let url = format!(
+        "{}/systemusers({})/Microsoft.Dynamics.CRM.RetrieveUserPrivilegeByPrivilegeName(PrivilegeName='prvReadflowrun')",
+        base(host),
+        user
+    );
+    Ok(deepest(&get_json(&url, token, None)?).to_string())
+}
+
+/// The widest `Depth` among the role privileges (names or numbers, as the API may send either).
+fn deepest(v: &Value) -> &'static str {
+    const ORDER: [&str; 5] = ["none", "basic", "local", "deep", "global"];
+    let rank = |d: &Value| -> usize {
+        match d {
+            Value::String(s) => ORDER.iter().position(|o| o.eq_ignore_ascii_case(s)).unwrap_or(0),
+            Value::Number(n) => n.as_u64().map(|n| (n as usize + 1).min(4)).unwrap_or(0),
+            _ => 0,
+        }
+    };
+    let best = v["RolePrivileges"].as_array().map(|a| a.iter().map(|p| rank(&p["Depth"])).max().unwrap_or(0)).unwrap_or(0);
+    ORDER[best]
+}
+
 /// `get_json`, waiting and trying again when the server says it's busy.
 fn get_patient(url: &str, token: &str, prefer: &str) -> AppResult<Value> {
     let mut attempt = 0;
@@ -606,6 +634,16 @@ mod tests {
                 HourBucket { at: "2026-10-03T05:00:00Z".into(), total: 2, failed: 1 },
             ]
         );
+    }
+
+    #[test]
+    fn deepest_read_depth_wins() {
+        let v = serde_json::json!({ "RolePrivileges": [{ "Depth": "Basic" }, { "Depth": "Global" }, { "Depth": "Local" }] });
+        assert_eq!(deepest(&v), "global");
+        assert_eq!(deepest(&serde_json::json!({ "RolePrivileges": [{ "Depth": "Basic" }] })), "basic");
+        assert_eq!(deepest(&serde_json::json!({ "RolePrivileges": [{ "Depth": 2 }] })), "deep");
+        assert_eq!(deepest(&serde_json::json!({ "RolePrivileges": [] })), "none");
+        assert_eq!(deepest(&serde_json::json!({})), "none");
     }
 
     #[test]
