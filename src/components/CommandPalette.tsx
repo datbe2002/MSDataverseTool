@@ -37,6 +37,7 @@ export interface PaletteOpeners {
   openSettings: (section?: SettingsSection) => void;
   openDiscover: () => void;
   openAdd: () => void;
+  openOnboarding: () => void;
 }
 
 /** Ctrl+K (outside the editor, where Ctrl+K starts Monaco's chords), Ctrl+P and Ctrl+Shift+P toggle the palette. */
@@ -145,6 +146,7 @@ export function CommandPalette({ onClose, openers }: { onClose: () => void; open
     act("about", "Settings: About and updates", <Settings size={15} />, () => openers.openSettings("about"), undefined, "version check for updates");
     act("discover", "Discover environments…", <Compass size={15} />, openers.openDiscover, undefined, "add environment connection");
     act("add", "Add environment by URL…", <Plus size={15} />, openers.openAdd, undefined, "connection");
+    act("onboarding", "Setup guide…", <Compass size={15} />, openers.openOnboarding, undefined, "welcome onboarding getting started new project sign in");
     if (project && !project.username) {
       act("sign-in", `Sign in to ${project.name}`, <LogIn size={15} />, () => void s.signIn(), undefined, "microsoft login account");
     } else if (project?.username) {

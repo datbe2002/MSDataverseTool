@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore, activeProjectOf } from "../store";
 import { X, Compass, Loader, Plus, Database, AlertTriangle, Pencil, Check, Folder, Trash, LogIn, LogOut } from "./Icon";
-import { TAG_COLORS, TAG_PRESETS, tagStyle } from "../lib/tags";
+import { PRESET_COLORS, TAG_COLORS, TAG_PRESETS, tagStyle } from "../lib/tags";
 import { TagBadge } from "./TagBadge";
 import { useReauth } from "../lib/reauth";
 import { tabTitle } from "../lib/tabs";
@@ -190,11 +190,7 @@ export function EditConnectionModal({
                 key={p}
                 onClick={() => {
                   setTag(p);
-                  // Sensible default colours for the presets.
-                  setColor(
-                    { PROD: "red", UAT: "amber", DEV: "green", TEST: "blue", SIT: "violet" }[p] ??
-                      color
-                  );
+                  setColor(PRESET_COLORS[p] ?? color);
                 }}
                 className={`btn btn-secondary btn-sm ${
                   tag.trim().toUpperCase() === p ? "!border-brand/50 !bg-brand/15" : ""

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Outlet, useMatch } from "react-router";
+import { Outlet, useMatch, useNavigate } from "react-router";
 import { useStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
@@ -18,6 +18,8 @@ import {
   SignOutConfirmModal,
   SwitchConfirmModal,
 } from "./components/Modals";
+import { Onboarding, maybeFirstStart, shouldOnboard } from "./components/Onboarding";
+import { RunAccessModal } from "./components/FlowRuns";
 import { matchesBinding } from "./lib/keys";
 import { ROUTES } from "./lib/navigation";
 import { startUpdateChecks } from "./lib/updater";
@@ -50,6 +52,9 @@ export function RootLayout() {
   // null = closed; { project: null } = create; { project } = edit
   const [projectModal, setProjectModal] = useState<{ project: Project | null } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // null = still loading projects/connections (a likely first start shows a blank canvas, not the app).
+  const [onboarding, setOnboarding] = useState<boolean | null>(null);
+  const navigate = useNavigate();
   const togglePalette = useCallback(() => setPaletteOpen((o) => !o), []);
   usePaletteShortcut(togglePalette);
   const paletteOpeners = useMemo<PaletteOpeners>(
@@ -57,12 +62,13 @@ export function RootLayout() {
       openSettings: (section) => setSettingsOpen({ section }),
       openDiscover: () => setEnvOpen(true),
       openAdd: () => setAddOpen(true),
+      openOnboarding: () => setOnboarding(true),
     }),
     []
   );
 
   useEffect(() => {
-    init();
+    void init().then(() => setOnboarding(shouldOnboard(useStore.getState().connections)));
     loadSettings();
   }, [init, loadSettings]);
 
@@ -125,6 +131,16 @@ export function RootLayout() {
         </main>
       </div>
 
+      {onboarding === null
+        ? maybeFirstStart() && <div className="fixed inset-0 z-40 bg-bg" />
+        : onboarding && (
+            <Onboarding
+              onClose={(route) => {
+                setOnboarding(false);
+                if (route) navigate(route);
+              }}
+            />
+          )}
       {addOpen && <AddConnectionModal onClose={() => setAddOpen(false)} />}
       {envOpen && <EnvironmentPickerModal onClose={() => setEnvOpen(false)} />}
       {settingsOpen && <SettingsModal section={settingsOpen.section} onClose={() => setSettingsOpen(null)} />}
@@ -138,6 +154,7 @@ export function RootLayout() {
       <CloseTabConfirmModal />
       {/* After the project modal, so it stacks on top when opened from there. */}
       <SignOutConfirmModal />
+      <RunAccessModal />
       {/* Last: an expired sign-in can interrupt anything, dialogs included. */}
       <ReauthModal />
       <Toasts />

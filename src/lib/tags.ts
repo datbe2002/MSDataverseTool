@@ -15,6 +15,26 @@ export type TagColor = (typeof TAG_COLORS)[number];
 
 export const TAG_PRESETS = ["DEV", "TEST", "UAT", "SIT", "PROD"];
 
+/** Sensible default colours for the presets. */
+export const PRESET_COLORS: Record<string, TagColor> = {
+  PROD: "red",
+  UAT: "amber",
+  DEV: "green",
+  TEST: "blue",
+  SIT: "violet",
+};
+
+/** The preset an environment's name hints at ("Contoso PROD", "sales-dev"), or null. */
+export function guessTag(name: string): string | null {
+  const words = name.toUpperCase().split(/[^A-Z0-9]+/);
+  if (words.some((w) => w === "PROD" || w === "PRD" || w === "PRODUCTION" || w === "LIVE")) return "PROD";
+  if (words.some((w) => w === "UAT")) return "UAT";
+  if (words.some((w) => w === "SIT")) return "SIT";
+  if (words.some((w) => w === "TEST" || w === "TST" || w === "QA")) return "TEST";
+  if (words.some((w) => w === "DEV" || w === "DEVELOPMENT" || w === "SANDBOX")) return "DEV";
+  return null;
+}
+
 interface TagStyle {
   /** pill background + text */
   badge: string;
