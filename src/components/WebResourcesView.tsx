@@ -37,6 +37,7 @@ import {
 import { relativeTime } from "../lib/history";
 import { flowRoute, pluginRoute } from "../lib/navigation";
 import { EDITOR_FONT, EDITOR_THEME } from "../lib/monacoTheme";
+import { ensureXrmTypes } from "../lib/xrmTypes";
 import { friendlyError } from "../lib/errors";
 import { Stat } from "./LogParts";
 import { AlertTriangle, ArrowUpRight, ChevronDown, Copy, Folder, Globe, Loader, More, Pencil, Plus, Refresh, Save, Search, Upload } from "./Icon";
@@ -280,7 +281,7 @@ export function WebResourcesView() {
               ))}
           </select>
           <label className="flex shrink-0 cursor-pointer items-center gap-1.5" title="Web resources shipped by Microsoft (Dynamics 365 apps, the platform)">
-            <input type="checkbox" checked={filters.hideMicrosoft} onChange={(e) => patch({ hideMicrosoft: e.target.checked })} className="accent-[var(--brand)]" />
+            <input type="checkbox" checked={filters.hideMicrosoft} onChange={(e) => patch({ hideMicrosoft: e.target.checked })} />
             Hide Microsoft
           </label>
         </div>
@@ -1125,6 +1126,9 @@ function Content({
         path={`webresource/${d.id}/${version}.${k.ext || "txt"}`}
         value={text}
         theme={theme === "dark" ? EDITOR_THEME.dark : EDITOR_THEME.light}
+        beforeMount={(monaco) => {
+          if (k.language === "javascript") ensureXrmTypes(monaco);
+        }}
         onChange={(v) => editable && onEdit(v ?? "", original)}
         onMount={(editor) => {
           editorRef.current = editor;
@@ -1199,6 +1203,9 @@ function Compare({
           keepCurrentOriginalModel
           keepCurrentModifiedModel
           theme={theme === "dark" ? EDITOR_THEME.dark : EDITOR_THEME.light}
+          beforeMount={(monaco) => {
+            if (k.language === "javascript") ensureXrmTypes(monaco);
+          }}
           options={{ ...EDITOR_OPTIONS, readOnly: !editable, originalEditable: false, renderSideBySide: true }}
           onMount={(editor) => {
             syncDiffModels(editor, left, right);
