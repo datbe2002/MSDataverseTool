@@ -172,7 +172,8 @@ export function FlowTaskCompare({
   const leftText = textOf(left);
   const rightText = textOf(right);
   const shownLeft = useMemo(() => (leftText === undefined ? undefined : diffText(leftText, ignore)), [leftText, ignore]);
-  const shownRight = useMemo(() => (rightText === undefined ? undefined : diffText(rightText, ignore)), [rightText, ignore]);
+  // Keys in the left side's order, so only real differences show.
+  const shownRight = useMemo(() => (rightText === undefined ? undefined : diffText(rightText, ignore, leftText)), [rightText, ignore, leftText]);
 
   const changes = useMemo(() => (leftText !== undefined && rightText !== undefined ? flowChanges(leftText, rightText) : null), [leftText, rightText]);
   const working = texts[cacheKey("working")];
@@ -286,7 +287,7 @@ export function FlowTaskCompare({
               <span className="text-success">+{stats.added}</span> <span className="text-danger">−{stats.removed}</span> <span className="text-subtle">lines</span>
             </span>
           )}
-          {view === "json" && <label className="flex items-center gap-1.5 text-xs text-muted" title="The designer gives every step a new operationMetadataId when the flow is saved; hiding them leaves the real changes">
+          {view === "json" && <label className="flex items-center gap-1.5 text-xs text-muted" title="What the Power Automate designer rewrites on its own when a flow is saved: a new operationMetadataId on every step, and the default authentication (@parameters('$authentication')) it drops. Hiding them leaves the real changes.">
             <input type="checkbox" className="accent-[var(--brand)]" checked={ignore} onChange={(e) => setIgnoreKept(e.target.checked)} />
             Hide designer ids
           </label>}
@@ -455,6 +456,18 @@ export function FlowTaskCompare({
 
 const NO_CHILD = (): ChildFlow => ({ status: "missing" });
 
+const DRAWER_KEY = "cds.flowtasks.drawer";
+const MIN_DRAWER = 160;
+
+function readDrawer(): number {
+  try {
+    const v = Number(localStorage.getItem(DRAWER_KEY));
+    return Number.isFinite(v) && v >= MIN_DRAWER ? v : 300;
+  } catch {
+    return 300;
+  }
+}
+
 const MARK_TEXT: Record<DiffMark, string> = {
   added: "Added",
   removed: "Removed",
@@ -517,7 +530,33 @@ function VisualCompare({
   theme: "dark" | "light";
   onShowInJson: (side: "left" | "right", path: string[]) => void;
 }) {
-  const [detail, setDetail] = useState<"changes" | "left" | "right">("changes");
+  const [detail, setDetail] = useState<"changes" | "both">("changes");
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [drawerH, setDrawerH] = useState(readDrawer);
+  /** Keeps the canvases at least ~140px tall. */
+  const setDrawer = useCallback((h: number) => {
+    const max = Math.max(MIN_DRAWER, (boxRef.current?.clientHeight ?? 800) - 140);
+    const v = Math.round(Math.min(max, Math.max(MIN_DRAWER, h)));
+    setDrawerH(v);
+    try {
+      localStorage.setItem(DRAWER_KEY, String(v));
+    } catch {
+      // Only a convenience.
+    }
+  }, []);
+  const startResize = (e: React.PointerEvent) => {
+    const box = boxRef.current;
+    if (!box || e.button !== 0) return;
+    e.preventDefault();
+    const bottom = box.getBoundingClientRect().bottom;
+    const move = (ev: PointerEvent) => setDrawer(bottom - ev.clientY);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   const [panelTab, setPanelTab] = useState<PanelTab>("parameters");
   const leftOutline = useMemo(() => (leftText === undefined ? undefined : buildOutline(leftText)), [leftText]);
   const rightOutline = useMemo(() => (rightText === undefined ? undefined : buildOutline(rightText)), [rightText]);
@@ -555,8 +594,7 @@ function VisualCompare({
   const before = picked.left ? leftSteps.get(picked.left) ?? null : null;
   const after = picked.right ? rightSteps.get(picked.right) ?? null : null;
   const fields = step && step.kind !== "branch" ? stepFieldChanges(before, after) : [];
-  // A tab for a side the step isn't on falls back to what changed.
-  const shownDetail = detail === "left" && !before ? "changes" : detail === "right" && !after ? "changes" : detail;
+  const shownDetail = detail;
   const stepMarks = side && id ? marks[side].get(id) ?? [] : [];
 
   const canvas = (which: "left" | "right", outline: OutlineNode[] | null, label: string, key: string) => (
@@ -588,56 +626,97 @@ function VisualCompare({
   );
 
   const picking = !!(step && side && step.kind !== "branch");
+  const panelFor = (which: "left" | "right", n: OutlineNode) => (
+    <div className="flex min-h-0 min-w-0 flex-col [&>aside]:!w-full [&>aside]:!border-l-0">
+      <FlowStepPanel
+        key={`${which}|${n.id}`}
+        connId={connId ?? ""}
+        step={n}
+        tab={panelTab}
+        onTab={setPanelTab}
+        index={which === "left" ? leftIndex : rightIndex}
+        onSelectKey={(key) => {
+          const k = (which === "left" ? leftIndex : rightIndex).byKey.get(key);
+          if (k) onPick(which, k.id);
+        }}
+        flowName={flowName}
+        onOpenFlow={noop}
+        onShowInJson={() => onShowInJson(which, n.path)}
+        onClose={() => onPick(which, null)}
+      />
+    </div>
+  );
   return (
-    <div className="flex min-h-0 flex-col">
-      <div className="flex min-h-0 flex-1">
-        <div className={`grid min-h-0 min-w-0 flex-1 ${single ? "grid-cols-1" : "grid-cols-2 divide-x divide-line"}`}>
-          {!single && canvas("left", leftOutline, leftLabel, `l|${leftKey}`)}
-          {canvas("right", rightOutline, rightLabel, `r|${rightKey}|${single ? 1 : 2}`)}
-        </div>
-        {picking && step && side && (
-          <aside className="flex min-h-0 w-[min(420px,40%)] shrink-0 flex-col border-l border-line bg-s1" aria-label={`Step ${step.name}`}>
-            <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-              <div className="seg" role="tablist" aria-label="Step details">
-                <button role="tab" aria-pressed={shownDetail === "changes"} aria-selected={shownDetail === "changes"} onClick={() => setDetail("changes")}>
-                  What changed
-                </button>
-                <button role="tab" aria-pressed={shownDetail === "left"} aria-selected={shownDetail === "left"} onClick={() => setDetail("left")} disabled={!before} title={before ? "The step in the left version" : "Not in the left version"}>
-                  Before
-                </button>
-                <button role="tab" aria-pressed={shownDetail === "right"} aria-selected={shownDetail === "right"} onClick={() => setDetail("right")} disabled={!after} title={after ? "The step in the right version" : "Not in the right version"}>
-                  After
-                </button>
-              </div>
-              <button className="btn btn-ghost btn-icon btn-sm ml-auto" onClick={() => onPick(side, null)} aria-label="Close" title="Close (Esc)">
-                <X size={14} />
+    <div ref={boxRef} className="flex min-h-0 flex-col">
+      <div className={`grid min-h-0 min-w-0 flex-1 ${single ? "grid-cols-1" : "grid-cols-2 divide-x divide-line"}`}>
+        {!single && canvas("left", leftOutline, leftLabel, `l|${leftKey}`)}
+        {canvas("right", rightOutline, rightLabel, `r|${rightKey}|${single ? 1 : 2}`)}
+      </div>
+      {picking && step && side && (
+        <section className="flex shrink-0 flex-col border-t border-line bg-s1" style={{ height: drawerH }} aria-label={`Step ${step.name}`}>
+          {/* Drag (or arrow keys) to give the canvases or the details more room. */}
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the step details"
+            aria-valuenow={drawerH}
+            tabIndex={0}
+            className="group -mt-1.5 flex h-3 shrink-0 cursor-row-resize items-center justify-center focus-visible:outline-none"
+            onPointerDown={startResize}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                e.preventDefault();
+                setDrawer(drawerH + (e.key === "ArrowUp" ? 24 : -24));
+              }
+            }}
+          >
+            <span className="h-1 w-10 rounded-full bg-line-strong transition-colors group-hover:bg-brand group-focus-visible:bg-brand" />
+          </div>
+          <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 pb-2">
+            <div className="seg" role="tablist" aria-label="Step details">
+              <button role="tab" aria-pressed={shownDetail === "changes"} aria-selected={shownDetail === "changes"} onClick={() => setDetail("changes")}>
+                What changed
+              </button>
+              <button role="tab" aria-pressed={shownDetail !== "changes"} aria-selected={shownDetail !== "changes"} onClick={() => setDetail("both")}>
+                Before &amp; after
               </button>
             </div>
-            {shownDetail === "changes" ? (
-              <StepChanges step={step} marks={stepMarks} fields={fields} onlyLeft={!after} onlyRight={!before} onShowInJson={() => onShowInJson(side, step.path)} />
-            ) : (
-              <div className="min-h-0 flex-1 [&>aside]:!w-full [&>aside]:!border-l-0">
-                <FlowStepPanel
-                  key={`${shownDetail}|${(shownDetail === "left" ? before : after)!.id}`}
-                  connId={connId ?? ""}
-                  step={(shownDetail === "left" ? before : after)!}
-                  tab={panelTab}
-                  onTab={setPanelTab}
-                  index={shownDetail === "left" ? leftIndex : rightIndex}
-                  onSelectKey={(key) => {
-                    const n = (shownDetail === "left" ? leftIndex : rightIndex).byKey.get(key);
-                    if (n) onPick(shownDetail === "left" ? "left" : "right", n.id);
-                  }}
-                  flowName={flowName}
-                  onOpenFlow={noop}
-                  onShowInJson={() => onShowInJson(shownDetail === "left" ? "left" : "right", (shownDetail === "left" ? before : after)!.path)}
-                  onClose={() => onPick(side, null)}
-                />
-              </div>
-            )}
-          </aside>
-        )}
-      </div>
+            <span className="min-w-0 max-w-[40%] shrink-0 truncate text-sm font-medium" title={step.name}>
+              {step.name}
+            </span>
+            {stepMarks.map((m) => (
+              <span key={m} className={`badge ${MARK_BADGE[m]} shrink-0`}>
+                {MARK_TEXT[m]}
+              </span>
+            ))}
+            <span className="hidden min-w-0 truncate text-xs text-subtle lg:inline">{[step.type, step.detail].filter(Boolean).join(" · ")}</span>
+            <button className="btn btn-ghost btn-sm ml-auto shrink-0" onClick={() => onShowInJson(side, step.path)}>
+              Show in JSON
+            </button>
+            <button className="btn btn-ghost btn-icon btn-sm shrink-0" onClick={() => onPick(side, null)} aria-label="Close" title="Close (Esc)">
+              <X size={14} />
+            </button>
+          </div>
+          {shownDetail === "changes" ? (
+            <StepChanges step={step} fields={fields} onlyLeft={!after} onlyRight={!before} />
+          ) : (
+            <div className={`grid min-h-0 flex-1 ${before && after ? "grid-cols-2 divide-x divide-line" : "grid-cols-1"}`}>
+              {before && (
+                <div className="flex min-h-0 flex-col">
+                  <div className="shrink-0 border-b border-line bg-s2 px-4 py-1 text-[11.5px] text-subtle">Before · {leftLabel}</div>
+                  {panelFor("left", before)}
+                </div>
+              )}
+              {after && (
+                <div className="flex min-h-0 flex-col">
+                  <div className="shrink-0 border-b border-line bg-s2 px-4 py-1 text-[11.5px] text-subtle">After · {rightLabel}</div>
+                  {panelFor("right", after)}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
       {!picking && (
         <div className="flex min-h-[44px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line bg-s1 px-4 py-2 text-xs text-subtle">
           Pick a step to see what changed in it.
@@ -666,75 +745,44 @@ function show(v: unknown): string {
   return JSON.stringify(v, null, 2);
 }
 
-/** What changed in one step, value by value. */
-function StepChanges({
-  step,
-  marks,
-  fields,
-  onlyLeft,
-  onlyRight,
-  onShowInJson,
-}: {
-  step: OutlineNode;
-  marks: DiffMark[];
-  fields: FieldChange[];
-  onlyLeft: boolean;
-  onlyRight: boolean;
-  onShowInJson: () => void;
-}) {
+/** What changed in one step, value by value, top to bottom. */
+function StepChanges({ step, fields, onlyLeft, onlyRight }: { step: OutlineNode; fields: FieldChange[]; onlyLeft: boolean; onlyRight: boolean }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b border-line px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 truncate text-sm font-semibold" title={step.name}>
-            {step.name}
-          </span>
-          {marks.map((m) => (
-            <span key={m} className={`badge ${MARK_BADGE[m]} shrink-0`}>
-              {MARK_TEXT[m]}
-            </span>
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      {(onlyLeft || onlyRight) && (
+        <div className="mb-2 px-1 text-xs text-muted">{onlyRight ? "Only in the right version — everything below is new." : "Only in the left version — everything below is gone."}</div>
+      )}
+      {fields.length === 0 ? (
+        <div className="flex items-center gap-1.5 px-1 text-xs text-subtle">
+          <Check size={12} className="text-success" /> Its own settings are the same on both sides{step.children.length ? " (steps inside it may differ)" : ""}.
+        </div>
+      ) : (
+        // One step, one table: a row per value, top to bottom.
+        <ul className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-s2">
+          {fields.map((f) => (
+            <li key={f.path.join("/")} className="grid grid-cols-[minmax(150px,26%)_minmax(0,1fr)]">
+              <div className="min-w-0 border-r border-line px-3 py-2">
+                <span className={`block text-[11px] font-semibold ${FIELD_TONE[f.kind]}`}>{f.kind === "added" ? "Added" : f.kind === "removed" ? "Removed" : "Changed"}</span>
+                <span className="block break-all font-mono text-[11.5px] text-muted">{f.path.join(" › ")}</span>
+              </div>
+              <div className="min-w-0 space-y-1 p-1.5">
+                {f.kind !== "added" && (
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-danger/10 px-2 py-1.5 font-mono text-[11.5px] leading-[1.45]" title="Before">
+                    <span className="select-none text-danger">− </span>
+                    {show(f.before)}
+                  </pre>
+                )}
+                {f.kind !== "removed" && (
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-success/10 px-2 py-1.5 font-mono text-[11.5px] leading-[1.45]" title="After">
+                    <span className="select-none text-success">+ </span>
+                    {show(f.after)}
+                  </pre>
+                )}
+              </div>
+            </li>
           ))}
-        </div>
-        <div className="mt-0.5 flex items-center gap-2 text-xs text-subtle">
-          <span className="truncate">{[step.type, step.detail].filter(Boolean).join(" · ")}</span>
-          <button className="ml-auto shrink-0 hover:text-fg hover:underline" onClick={onShowInJson}>
-            Show in JSON
-          </button>
-        </div>
-        {(onlyLeft || onlyRight) && <div className="mt-1.5 text-xs text-muted">{onlyRight ? "Only in the right version — everything below is new." : "Only in the left version — everything below is gone."}</div>}
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {fields.length === 0 ? (
-          <div className="flex items-center gap-1.5 px-1 text-xs text-subtle">
-            <Check size={12} className="text-success" /> Its own settings are the same on both sides{step.children.length ? " (steps inside it may differ)" : ""}.
-          </div>
-        ) : (
-          <ul className="space-y-2.5">
-            {fields.map((f) => (
-              <li key={f.path.join("/")} className="rounded-lg border border-line bg-s2">
-                <div className="flex items-baseline gap-2 border-b border-line px-3 py-1.5">
-                  <span className={`shrink-0 text-[11px] font-semibold ${FIELD_TONE[f.kind]}`}>{f.kind === "added" ? "Added" : f.kind === "removed" ? "Removed" : "Changed"}</span>
-                  <span className="min-w-0 break-all font-mono text-[11.5px] text-muted">{f.path.join(" › ")}</span>
-                </div>
-                <div className="space-y-1 p-2">
-                  {f.kind !== "added" && (
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-danger/10 px-2 py-1.5 font-mono text-[11.5px] leading-[1.45]" title="Before">
-                      <span className="select-none text-danger">− </span>
-                      {show(f.before)}
-                    </pre>
-                  )}
-                  {f.kind !== "removed" && (
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-success/10 px-2 py-1.5 font-mono text-[11.5px] leading-[1.45]" title="After">
-                      <span className="select-none text-success">+ </span>
-                      {show(f.after)}
-                    </pre>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+        </ul>
+      )}
     </div>
   );
 }

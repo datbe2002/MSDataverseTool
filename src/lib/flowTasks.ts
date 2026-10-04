@@ -161,12 +161,25 @@ export function folderName(name: string): string {
 
 // ---------------------------------------------------------------- text for diffs
 
-/** The designer rewrites these on every save; they say nothing about the flow. */
+/**
+ * What the classic designer put on every connector step and the new one
+ * drops when it saves: with connection references the runtime signs in
+ * without it, so it says nothing about what the flow does.
+ */
+const DEFAULT_AUTHENTICATION = "@parameters('$authentication')";
+
+/**
+ * Leaves out what the designer rewrites on its own when a flow is saved:
+ * `metadata.operationMetadataId` (new on every save) and the default
+ * `authentication` of a step (the new designer drops it). Any other
+ * authentication value stays, so a real change still shows.
+ */
 function stripDesignerMetadata(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(stripDesignerMetadata);
   if (!isObject(v)) return v;
   const out: Json = {};
   for (const [k, val] of Object.entries(v)) {
+    if (k === "authentication" && val === DEFAULT_AUTHENTICATION) continue;
     if (k === "metadata" && isObject(val)) {
       const { operationMetadataId: _id, ...rest } = val;
       const cleaned = stripDesignerMetadata(rest) as Json;
@@ -178,14 +191,38 @@ function stripDesignerMetadata(v: unknown): unknown {
   return out;
 }
 
-/** The text a diff shows: re-indented, without designer ids when asked; text that isn't JSON as is. */
-export function diffText(text: string, ignoreMetadata: boolean): string {
+/**
+ * `v` with its keys in the order `like` has them (keys `like` lacks come
+ * last). Key order means nothing in JSON, so two versions that only list
+ * keys differently then diff as the same.
+ */
+function alignKeys(v: unknown, like: unknown): unknown {
+  if (Array.isArray(v)) return v.map((x, i) => alignKeys(x, Array.isArray(like) ? like[i] : undefined));
+  if (!isObject(v)) return v;
+  const ref = isObject(like) ? like : {};
+  const keys = [...Object.keys(ref).filter((k) => k in v), ...Object.keys(v).filter((k) => !(k in ref))];
+  return Object.fromEntries(keys.map((k) => [k, alignKeys(v[k], ref[k])]));
+}
+
+function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
   try {
-    const v = JSON.parse(text.replace(/^﻿/, ""));
-    return JSON.stringify(ignoreMetadata ? stripDesignerMetadata(v) : v, null, 2) + "\n";
+    return { ok: true, value: JSON.parse(text.replace(/^\uFEFF/, "")) };
   } catch {
-    return text;
+    return { ok: false };
   }
+}
+
+/**
+ * The text a diff shows: re-indented, without designer ids when asked, keys
+ * in the order of `like` (the other side) when given; text that isn't JSON as is.
+ */
+export function diffText(text: string, ignoreMetadata: boolean, like?: string): string {
+  const parsed = parseJson(text);
+  if (!parsed.ok) return text;
+  const clean = (v: unknown) => (ignoreMetadata ? stripDesignerMetadata(v) : v);
+  const other = like === undefined ? null : parseJson(like);
+  const value = other && other.ok ? alignKeys(clean(parsed.value), clean(other.value)) : clean(parsed.value);
+  return JSON.stringify(value, null, 2) + "\n";
 }
 
 /** JSON with sorted keys, for comparing values. */
@@ -461,7 +498,13 @@ function leaves(v: unknown, path: string[], out: Map<string, { path: string[]; v
  * side only: all of it, as added or removed.
  */
 export function stepFieldChanges(before: OutlineNode | null, after: OutlineNode | null): FieldChange[] {
-  const own = (n: OutlineNode | null) => (n ? stripDesignerMetadata(n.kind === "trigger" ? n.raw : ownPart(n)) ?? {} : {});
+  const own = (n: OutlineNode | null): unknown => {
+    if (!n) return {};
+    if (n.kind === "trigger") return stripDesignerMetadata(n.raw) ?? {};
+    // runAfter as read (statuses in one spelling: "SUCCEEDED" is "Succeeded").
+    const { runAfter: _runAfter, ...rest } = (stripDesignerMetadata(ownPart(n)) ?? {}) as Json;
+    return Object.keys(n.after).length ? { ...rest, runAfter: n.after } : rest;
+  };
   const a = leaves(own(before), [], new Map());
   const b = leaves(own(after), [], new Map());
   const out: FieldChange[] = [];
