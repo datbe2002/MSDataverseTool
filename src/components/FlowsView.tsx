@@ -10,10 +10,11 @@ import { FlowOutline } from "./FlowOutline";
 import { FlowDesigner } from "./FlowDesigner";
 import { FlowRunsTab } from "./FlowRuns";
 import { AddToTask } from "./FlowTaskDialogs";
+import { PaneResizer } from "./PaneResizer";
 import { rangeLabel, runSummaries, useMonitorRange } from "../lib/flowRuns";
 import { relativeTime } from "../lib/history";
 import { EDITOR_THEME } from "../lib/monacoTheme";
-import { Search, Refresh, Copy, Flow, AlertTriangle, ArrowLeft, ArrowUpRight, Loader } from "./Icon";
+import { Search, Refresh, Copy, Flow, AlertTriangle, ArrowLeft, ArrowUpRight, Loader, ChevronDown } from "./Icon";
 import type { FlowMeta } from "../types";
 
 type StateFilter = "all" | "on" | "off" | "suspended";
@@ -37,6 +38,19 @@ function stateDot(flow: FlowMeta) {
 
 const time = (iso: string) => (iso ? relativeTime(Date.parse(iso)) : "—");
 
+const LIST_KEY = "cds.flows.listWidth";
+/** Flow list width (px); dragged by the user, remembered. */
+const LIST = { min: 300, max: 720, initial: 320 };
+
+function readListWidth(): number {
+  try {
+    const w = Number(localStorage.getItem(LIST_KEY));
+    return w ? Math.min(LIST.max, Math.max(LIST.min, w)) : LIST.initial;
+  } catch {
+    return LIST.initial;
+  }
+}
+
 export function FlowsView() {
   const activeId = useStore((s) => s.activeId);
   const connection = useStore((s) => s.connections.find((c) => c.id === s.activeId) ?? null);
@@ -56,6 +70,20 @@ export function FlowsView() {
   const [state, setState] = useState<StateFilter>("all");
   const [owner, setOwner] = useState("");
   const [solution, setSolution] = useState("");
+  const [listWidth, setListWidth] = useState(readListWidth);
+  const dragFrom = useRef(listWidth);
+  const resizeList = (dx: number, done: boolean) => {
+    const w = Math.round(Math.min(LIST.max, Math.max(LIST.min, dragFrom.current + dx)));
+    setListWidth(w);
+    if (done) {
+      dragFrom.current = w;
+      try {
+        localStorage.setItem(LIST_KEY, String(w));
+      } catch {
+        // Only a convenience.
+      }
+    }
+  };
   // The picked flow lives in the URL (/flows/:flowId): back/forward and reload keep it.
   const { flowId } = useParams();
   const selected = flowId ?? null;
@@ -134,9 +162,9 @@ export function FlowsView() {
   const filtered = !!(filter.trim() || owner || solution);
 
   return (
-    <div className="grid h-full grid-cols-[clamp(300px,28vw,340px)_minmax(0,1fr)]">
+    <div className="flex h-full">
       {/* Flow list */}
-      <div className="flex min-h-0 flex-col border-r border-line bg-s1">
+      <div className="flex min-h-0 flex-col bg-s1" style={{ flex: `0 1 ${listWidth}px`, minWidth: LIST.min }}>
         <div className="flex items-center gap-2 px-3 pt-3">
           <div className="relative flex-1">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
@@ -279,8 +307,17 @@ export function FlowsView() {
         </ul>
       </div>
 
+      <PaneResizer
+        label="Resize the flow list"
+        onDrag={resizeList}
+        onKey={(dx) => {
+          dragFrom.current = listWidth;
+          resizeList(dx, true);
+        }}
+      />
+
       {/* Detail */}
-      <div className="min-h-0 overflow-hidden">
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         {selected && flows && !flow ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <div className="empty-icon">
@@ -326,6 +363,7 @@ export function FlowsView() {
 
 type DefinitionTab = "json" | "designer" | "runs";
 const TAB_KEY = "cds.flowTab";
+const DETAILS_KEY = "cds.flows.detailsOpen";
 
 /**
  * A flow opened from another one (a child flow, a caller): the flows it was
@@ -346,6 +384,14 @@ function openedFrom(state: unknown): Opened[] {
 
 /** "Run child flow" from a step id (its last path part). */
 const stepLabel = (id: string) => id.split("\u0001").pop()!.replace(/_/g, " ");
+
+function readDetailsOpen(): boolean {
+  try {
+    return localStorage.getItem(DETAILS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
 
 function readTab(): DefinitionTab {
   try {
@@ -546,6 +592,18 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
     [stepsById]
   );
 
+  // Collapsed keeps the title row only, so the designer gets the height; it stays so across flows.
+  const [detailsOpen, setDetailsOpen] = useState(readDetailsOpen);
+  const toggleDetails = () =>
+    setDetailsOpen((open) => {
+      try {
+        localStorage.setItem(DETAILS_KEY, open ? "0" : "1");
+      } catch {
+        // Only a convenience.
+      }
+      return !open;
+    });
+
   const copy = (text: string, what: string) =>
     navigator.clipboard
       .writeText(text)
@@ -554,7 +612,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
 
   return (
     <div className="fade-in flex h-full min-h-0 flex-col">
-      <div className={`shrink-0 px-6 pb-5 xl:px-8 short:pb-3 ${trail.length ? "pt-3" : "pt-7 short:pt-4"}`}>
+      <div className={`shrink-0 px-6 xl:px-8 ${detailsOpen ? "pb-5 short:pb-3" : "pb-3"} ${trail.length || !detailsOpen ? "pt-3" : "pt-7 short:pt-4"}`}>
         {trail.length > 0 && (
           <nav className="mb-2 flex min-w-0 flex-wrap items-center gap-1 text-xs text-subtle" aria-label="Opened from">
             <button
@@ -587,16 +645,27 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                className="btn btn-ghost btn-sm btn-icon -ml-2 shrink-0"
+                onClick={toggleDetails}
+                aria-expanded={detailsOpen}
+                aria-label={detailsOpen ? "Collapse flow details" : "Expand flow details"}
+                title={detailsOpen ? "Collapse flow details" : "Expand flow details"}
+              >
+                <ChevronDown size={14} className={detailsOpen ? "" : "-rotate-90"} />
+              </button>
               <h2 className="line-clamp-2 min-w-0 text-lg font-semibold tracking-tight [overflow-wrap:anywhere]" title={flow.name}>
                 {flow.name || "(no name)"}
               </h2>
               <span className={`badge badge-dot ${stateBadge(flow)}`}>{flow.state === 1 ? "On" : flow.stateLabel}</span>
               <span className="badge badge-neutral">{flow.managed ? "managed" : "unmanaged"}</span>
             </div>
-            <p className="mt-0.5 text-sm text-muted short:truncate">
-              {flow.owner || "Unknown owner"} · modified {time(flow.modifiedOn)}
-              {flow.modifiedBy && ` by ${flow.modifiedBy}`}
-            </p>
+            {detailsOpen && (
+              <p className="mt-0.5 text-sm text-muted short:truncate">
+                {flow.owner || "Unknown owner"} · modified {time(flow.modifiedOn)}
+                {flow.modifiedBy && ` by ${flow.modifiedBy}`}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AddToTask connId={connId} flow={flow} />
@@ -609,109 +678,113 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
           </div>
         </div>
 
-        {flow.description && <p className="mt-3 line-clamp-3 max-w-3xl text-sm text-muted short:line-clamp-1" title={flow.description}>{flow.description}</p>}
+        {detailsOpen && (
+          <>
+          {flow.description && <p className="mt-3 line-clamp-3 max-w-3xl text-sm text-muted short:line-clamp-1" title={flow.description}>{flow.description}</p>}
 
-        {(flow.solutions.length > 0 || children.length > 0 || callable || !!callers?.length) && (
-          <div className="mt-3 space-y-1.5">
-            {flow.solutions.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="eyebrow w-[76px] shrink-0">Solutions</span>
-                {flow.solutions.map((s) => (
-                  <span key={s} className="badge badge-neutral">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            )}
-            {children.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="eyebrow w-[76px] shrink-0" title="Child flows this flow runs">
-                  Calls
-                </span>
-                {children.map((id) => (
-                  <FlowChip key={id} id={id} name={flowName(id)} onOpen={(c) => void openFlow(c, callerStep(c))} />
-                ))}
-              </div>
-            )}
-            {(callable || !!callers?.length) && (
-              <div className="flex min-h-[26px] flex-wrap items-center gap-1.5">
-                <span className="eyebrow w-[76px] shrink-0" title="Flows that run this one as a child flow">
-                  Called by
-                </span>
-                {callers ? (
-                  callers.length ? (
-                    callers.map((id) => <FlowChip key={id} id={id} name={flowName(id)} onOpen={(c) => void openFlow(c)} />)
-                  ) : (
-                    <span className="text-xs text-subtle">No flow in this environment runs it</span>
-                  )
-                ) : callsStatus === "loading" ? (
-                  <span className="flex items-center gap-1.5 text-xs text-subtle" role="status">
-                    <Loader size={12} className="text-brand" /> Reading every flow…
-                  </span>
-                ) : callsStatus === "error" ? (
-                  <span className="flex items-center gap-2 text-xs">
-                    <span className="text-warning" title={callsError}>
-                      Couldn't read the flows.
+          {(flow.solutions.length > 0 || children.length > 0 || callable || !!callers?.length) && (
+            <div className="mt-3 space-y-1.5">
+              {flow.solutions.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="eyebrow w-[76px] shrink-0">Solutions</span>
+                  {flow.solutions.map((s) => (
+                    <span key={s} className="badge badge-neutral">
+                      {s}
                     </span>
-                    <button className="btn btn-ghost btn-sm" onClick={() => loadCalls(connId)}>
-                      <Refresh size={12} /> Retry
-                    </button>
+                  ))}
+                </div>
+              )}
+              {children.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="eyebrow w-[76px] shrink-0" title="Child flows this flow runs">
+                    Calls
                   </span>
-                ) : (
-                  <button
-                    className="btn btn-ghost btn-sm -ml-1.5"
-                    onClick={() => loadCalls(connId)}
-                    title="Reads the definition of every flow in this environment once, then answers for all of them"
-                  >
-                    <Search size={12} /> Find parent flows
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* A short window needs the room for the designer, which shows all of this too. */}
-        <div className="card mt-5 grid grid-cols-3 divide-x divide-line short:hidden">
-          <Stat label="Trigger">
-            {pending ? (
-              <div className="skeleton mt-1 h-3 w-32" />
-            ) : !summary || summary.triggers.length === 0 ? (
-              <span className="text-subtle">—</span>
-            ) : (
-              summary.triggers.map((t) => (
-                <div key={t.name} className="truncate" title={`${t.name} (${t.type})`}>
-                  {t.name}
-                  {t.type && t.type.toLowerCase() !== t.name.toLowerCase() && (
-                    <span className="ml-1.5 text-xs text-subtle">{t.type}</span>
+                  {children.map((id) => (
+                    <FlowChip key={id} id={id} name={flowName(id)} onOpen={(c) => void openFlow(c, callerStep(c))} />
+                  ))}
+                </div>
+              )}
+              {(callable || !!callers?.length) && (
+                <div className="flex min-h-[26px] flex-wrap items-center gap-1.5">
+                  <span className="eyebrow w-[76px] shrink-0" title="Flows that run this one as a child flow">
+                    Called by
+                  </span>
+                  {callers ? (
+                    callers.length ? (
+                      callers.map((id) => <FlowChip key={id} id={id} name={flowName(id)} onOpen={(c) => void openFlow(c)} />)
+                    ) : (
+                      <span className="text-xs text-subtle">No flow in this environment runs it</span>
+                    )
+                  ) : callsStatus === "loading" ? (
+                    <span className="flex items-center gap-1.5 text-xs text-subtle" role="status">
+                      <Loader size={12} className="text-brand" /> Reading every flow…
+                    </span>
+                  ) : callsStatus === "error" ? (
+                    <span className="flex items-center gap-2 text-xs">
+                      <span className="text-warning" title={callsError}>
+                        Couldn't read the flows.
+                      </span>
+                      <button className="btn btn-ghost btn-sm" onClick={() => loadCalls(connId)}>
+                        <Refresh size={12} /> Retry
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      className="btn btn-ghost btn-sm -ml-1.5"
+                      onClick={() => loadCalls(connId)}
+                      title="Reads the definition of every flow in this environment once, then answers for all of them"
+                    >
+                      <Search size={12} /> Find parent flows
+                    </button>
                   )}
                 </div>
-              ))
-            )}
-          </Stat>
-          <Stat label="Actions">
-            {pending ? (
-              <div className="skeleton mt-1 h-3 w-10" />
-            ) : !summary ? (
-              <span className="text-subtle">—</span>
-            ) : (
-              <span className="tabular-nums">{summary.actionCount}</span>
-            )}
-          </Stat>
-          <Stat label="Connectors">
-            {pending ? (
-              <div className="skeleton mt-1 h-3 w-24" />
-            ) : !summary ? (
-              <span className="text-subtle">—</span>
-            ) : summary.connectors.length === 0 ? (
-              <span className="text-subtle">None</span>
-            ) : (
-              <div className="truncate font-mono text-[12.5px]" title={summary.connectors.join(", ")}>
-                {summary.connectors.join(", ")}
-              </div>
-            )}
-          </Stat>
-        </div>
+              )}
+            </div>
+          )}
+
+          {/* A short window needs the room for the designer, which shows all of this too. */}
+          <div className="card mt-5 grid grid-cols-3 divide-x divide-line short:hidden">
+            <Stat label="Trigger">
+              {pending ? (
+                <div className="skeleton mt-1 h-3 w-32" />
+              ) : !summary || summary.triggers.length === 0 ? (
+                <span className="text-subtle">—</span>
+              ) : (
+                summary.triggers.map((t) => (
+                  <div key={t.name} className="truncate" title={`${t.name} (${t.type})`}>
+                    {t.name}
+                    {t.type && t.type.toLowerCase() !== t.name.toLowerCase() && (
+                      <span className="ml-1.5 text-xs text-subtle">{t.type}</span>
+                    )}
+                  </div>
+                ))
+              )}
+            </Stat>
+            <Stat label="Actions">
+              {pending ? (
+                <div className="skeleton mt-1 h-3 w-10" />
+              ) : !summary ? (
+                <span className="text-subtle">—</span>
+              ) : (
+                <span className="tabular-nums">{summary.actionCount}</span>
+              )}
+            </Stat>
+            <Stat label="Connectors">
+              {pending ? (
+                <div className="skeleton mt-1 h-3 w-24" />
+              ) : !summary ? (
+                <span className="text-subtle">—</span>
+              ) : summary.connectors.length === 0 ? (
+                <span className="text-subtle">None</span>
+              ) : (
+                <div className="truncate font-mono text-[12.5px]" title={summary.connectors.join(", ")}>
+                  {summary.connectors.join(", ")}
+                </div>
+              )}
+            </Stat>
+          </div>
+          </>
+        )}
       </div>
 
       <div className="flex h-9 shrink-0 items-end gap-1 border-t border-b border-line bg-s1 px-4" role="tablist" aria-label="Definition view">
