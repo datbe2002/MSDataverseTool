@@ -9,6 +9,8 @@ import { ROUTES, flowRoute } from "../lib/navigation";
 import { FlowOutline } from "./FlowOutline";
 import { FlowDesigner } from "./FlowDesigner";
 import { FlowRunsTab } from "./FlowRuns";
+import { FlowAnalysisPane, GRADE_BADGE } from "./FlowAnalysis";
+import { analyseFlow } from "../lib/flowAnalyzer";
 import { AddToTask } from "./FlowTaskDialogs";
 import { PaneResizer } from "./PaneResizer";
 import { rangeLabel, runSummaries, useMonitorRange } from "../lib/flowRuns";
@@ -361,7 +363,7 @@ export function FlowsView() {
   );
 }
 
-type DefinitionTab = "json" | "designer" | "runs";
+type DefinitionTab = "json" | "designer" | "analysis" | "runs";
 const TAB_KEY = "cds.flowTab";
 const DETAILS_KEY = "cds.flows.detailsOpen";
 
@@ -395,7 +397,8 @@ function readDetailsOpen(): boolean {
 
 function readTab(): DefinitionTab {
   try {
-    return localStorage.getItem(TAB_KEY) === "designer" ? "designer" : "json";
+    const t = localStorage.getItem(TAB_KEY);
+    return t === "designer" || t === "analysis" ? t : "json";
   } catch {
     return "json";
   }
@@ -439,6 +442,14 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
   const summary = useMemo(() => (definition ? summarize(definition) : null), [definition]);
   const outline = useMemo(() => (definition ? buildOutline(definition) : null), [definition]);
   const lines = useMemo(() => (definition ? keyLines(definition) : null), [definition]);
+  const analysis = useMemo(() => {
+    if (!definition) return null;
+    try {
+      return { result: analyseFlow(definition), error: null };
+    } catch (e) {
+      return { result: null, error: e instanceof Error ? e.message : String(e) };
+    }
+  }, [definition]);
 
   // Child flows: the ones this flow runs, and (on demand) the ones that run it.
   const byId = useMemo(() => new Map(flows.map((f) => [f.id.toLowerCase(), f])), [flows]);
@@ -515,7 +526,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
   // JSON (outline + editor) or Designer; both follow the same picked step.
   const [tab, setTabState] = useState<DefinitionTab>(() => {
     const t = params.get("tab");
-    return t === "json" || t === "designer" || t === "runs" ? t : readTab();
+    return t === "json" || t === "designer" || t === "analysis" || t === "runs" ? t : readTab();
   });
   // The run picked on the Runs tab; kept in the URL (?tab=runs&run=<id>) so Back and reload keep it.
   const runId = params.get("run");
@@ -792,6 +803,7 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
           [
             ["json", "JSON"],
             ["designer", "Designer"],
+            ["analysis", "Analysis"],
             ["runs", "Runs"],
           ] as const
         ).map(([key, label]) => (
@@ -803,6 +815,14 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
             onClick={() => setTab(key)}
           >
             {label}
+            {key === "analysis" && analysis?.result && (
+              <span
+                className={`badge ${GRADE_BADGE[analysis.result.score.grade]} ml-1.5 !px-1.5`}
+                title={`Grade ${analysis.result.score.grade} (${analysis.result.score.overall} / 100)`}
+              >
+                {analysis.result.score.grade}
+              </span>
+            )}
             {key === "runs" && runFailures > 0 && (
               <span className="badge badge-danger ml-1.5 !px-1.5 tabular-nums" title={`${runFailures} failed runs`}>
                 {runFailures.toLocaleString()}
@@ -852,6 +872,17 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
                   setTab("json");
                 }}
                 theme={theme}
+              />
+            )}
+            {tab === "analysis" && (
+              <FlowAnalysisPane
+                analysis={analysis?.result ?? null}
+                error={analysis?.error ?? null}
+                onShowStep={(name) => {
+                  const node = [...stepsById.values()].find((n) => n.key === name);
+                  if (node) setStep(node.id);
+                  setTab("designer");
+                }}
               />
             )}
             {tab === "designer" && !outline && (

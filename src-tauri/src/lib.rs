@@ -587,6 +587,16 @@ fn open_record(connection_id: String, table: String, id: String) -> AppResult<()
     Ok(())
 }
 
+/// Opens a Microsoft Learn page (the Flow analysis "Docs" links) in the browser.
+#[tauri::command]
+fn open_docs(url: String) -> AppResult<()> {
+    if !url.starts_with("https://learn.microsoft.com/") {
+        return Err(AppError::msg("Only Microsoft Learn links can be opened"));
+    }
+    webbrowser::open(&url)?;
+    Ok(())
+}
+
 /// Runs `f(host, token)` on a blocking thread with the connection's token.
 async fn on_env<T: Send + 'static>(
     state: &AppState,
@@ -1340,6 +1350,7 @@ pub fn run() {
             system_jobs,
             system_job,
             open_record,
+            open_docs,
             plugin_overview,
             plugin_steps,
             plugin_step,

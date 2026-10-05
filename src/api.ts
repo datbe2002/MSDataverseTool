@@ -191,6 +191,8 @@ export const api = {
   /** Opens a record of the environment in the browser. */
   openRecord: (connectionId: string, table: string, id: string) =>
     invoke<void>("open_record", { connectionId, table, id }),
+  /** Opens a learn.microsoft.com page in the browser. */
+  openDocs: (url: string) => invoke<void>("open_docs", { url }),
 
   /** Plug-in assemblies, types, service endpoints and a slim index of every step. */
   pluginOverview: (connectionId: string, hideMicrosoft: boolean) =>
