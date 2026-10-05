@@ -515,9 +515,6 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
               current={current}
               onPick={(i) => onSelect(matches[i].step.id)}
             />
-            <button className="btn btn-secondary btn-sm !h-8 !rounded-[7px]" onClick={fit} title="Show the whole flow">
-              Fit
-            </button>
             <button
               className="btn btn-secondary btn-sm !h-8 !rounded-[7px]"
               onClick={() => {
