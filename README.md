@@ -49,12 +49,16 @@ is only needed for the TDS endpoint and for INSERT / UPDATE / DELETE.
   plan fall back to the Dataverse **TDS endpoint** (`<org>.crm.dynamics.com:5558`),
   which can also be forced in Settings.
 - 🔁 **Flows** — every cloud flow of an environment with filters by owner,
-  solution and status; a JSON view with an outline, and a read-only designer
-  with a step panel (inputs, expressions, variables, child flows) and search.
+  solution and status; a JSON view with an outline, a read-only designer
+  with a step panel (inputs, expressions, variables, child flows) and search,
+  and an **Analysis** tab that grades the flow (A–F) against Power Automate
+  coding guidelines and says how to fix each finding.
 - 📁 **Flow tasks** — the flows of one task checked out into a folder you pick
   (with a CLAUDE.md for whoever edits them); every save is compared with the
   original and the cloud as a JSON diff or side by side in the designer, with
   checks for broken references and a warning when the cloud changed meanwhile.
+  A reviewed version (or an earlier one, to revert) can be **deployed** back
+  to an environment tagged DEV.
 - 🖥️ **Desktop flows** — the RPA flows of an environment (drafts too) with
   their inputs and outputs, their run history with the error, inputs and
   outputs of each run, and the machines and machine groups that run them

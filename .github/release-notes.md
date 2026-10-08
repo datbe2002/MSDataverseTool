@@ -1,3 +1,24 @@
+### What's new in 0.8.0
+**REST builder** replaces the FetchXML Builder (Web API › REST builder) — build Dataverse Web API requests with pickers that know your tables, columns, choices and relationships.
+- Retrieve, Retrieve multiple (`$select`, `$filter`, `$orderby`, `$expand`, `$top`, `$count`), FetchXML (editor with autocomplete and checks) and functions run in the app: Next page / Load all, grid or JSON, export to CSV / JSON.
+- Create, Update, Delete, Associate, Disassociate and actions are generated as code only for now.
+- Copy any request as **Xrm.WebApi, fetch, XMLHttpRequest, raw HTTP, C# (HttpClient)** or the Power Automate Dataverse action to use. Old FetchXML tabs open in the REST builder.
+
+**Desktop flows** (Power Automate › Desktop flows, read only) — the RPA flows of an environment (drafts too) with their inputs and outputs, their runs with the error, inputs and outputs of each, and the machines and machine groups that run them (last heartbeat, agent version).
+
+**Flows**
+- **Analysis** — a new tab that grades the flow A–F (speed, resources, reliability, security), estimates the actions per run and lists findings with how to fix them. A finding's step opens in the Designer. Rules from Cloud Flow Analyzer (MIT).
+- Drag the edge of the flow list to resize it; fold the flow details down to the title row; **full screen** designer (Esc leaves). Expand all / Collapse all fit the view again.
+- Flow runs: the app now says when your account can't read every run.
+
+**Flow tasks**
+- **Deploy** a reviewed version — or an earlier one, to revert — back to the environment. Only to connections tagged **DEV**, only unmanaged flows in a solution, and only when the cloud still holds the baseline; what was there is kept as an earlier baseline.
+- Compare: step details below the canvases; the JSON diff ignores key order.
+
+**Also**
+- Web resources: Client API IntelliSense (`Xrm.*`) when editing JavaScript.
+- A setup guide on first start; round checkboxes across the app.
+
 ### What's new in 0.7.0
 **Flow tasks** (Power Automate › Tasks) — keep only the flows of an assigned task in a folder of their own, let someone (or Claude) edit them there, and see exactly what changed before anything goes back.
 - **New task** — pick where its folder goes; add flows from the task or with **Add to task** on any flow in Flows. Each flow is read from the environment as its baseline. The folder gets a CLAUDE.md with the task and the rules for editing flow definitions, and a git history when git is installed.
