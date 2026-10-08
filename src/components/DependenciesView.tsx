@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { useStore } from "../store";
-import { useColumns, useTables } from "../lib/fetchMeta";
+import { useColumns, useTables } from "../lib/meta";
 import { depsOf, useDeps } from "../lib/deps";
 import { flowRoute, pluginRoute, webResourceRoute } from "../lib/navigation";
-import { Combo } from "./FetchNodePanel";
+import { Combo } from "./FormParts";
 import { Link, Loader, Search, Check, AlertTriangle, ArrowUpRight, Flow, Plug } from "./Icon";
 import type { DependencyItem } from "../types";
 

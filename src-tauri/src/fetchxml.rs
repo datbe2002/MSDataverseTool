@@ -1,4 +1,4 @@
-//! The FetchXML tool: runs one page of a FetchXML query the user wrote,
+//! FetchXML requests of the REST builder: runs one page of a FetchXML query,
 //! through the Web API, and hands the records back as JSON. Parsing the XML,
 //! paging attributes and turning records into grid rows happen in the
 //! webview (`src/lib/fetchXml.ts`).

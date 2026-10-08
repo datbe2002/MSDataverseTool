@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { api } from "../api";
 import { useStore } from "../store";
-import { useTables } from "../lib/fetchMeta";
+import { useTables } from "../lib/meta";
 import { friendlyError } from "../lib/errors";
 import { ROUTES } from "../lib/navigation";
 import {
@@ -21,7 +21,7 @@ import {
   type Grant,
   type Matrix,
 } from "../lib/security";
-import { Combo } from "./FetchNodePanel";
+import { Combo } from "./FormParts";
 import { Search, Refresh, Shield, User, Loader, Check, X, AlertTriangle } from "./Icon";
 import type { AccessCheck, SecurityRole, SecurityUser } from "../types";
 

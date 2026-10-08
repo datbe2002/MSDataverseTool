@@ -1,32 +1,9 @@
-// Metadata the FetchXML builder needs, cached per environment: columns come
-// from `useSchema`, choice labels from `useChoices`; relationships live here.
+// Metadata hooks for pickers, cached per environment: tables and columns
+// come from `useSchema`, choice labels from `useChoices`.
 import { useEffect } from "react";
-import { create } from "zustand";
-import { api } from "../api";
 import { columnKey, useSchema } from "./schema";
 import { useChoices } from "./flowChoices";
-import type { ColumnMeta, Relationship, TableChoices } from "../types";
-
-type Entry = Relationship[] | "loading" | "error";
-
-interface RelationshipStore {
-  /** keyed by `${connectionId}|${table}` */
-  tables: Record<string, Entry>;
-  load: (connId: string, table: string) => void;
-}
-
-export const useRelationships = create<RelationshipStore>((set, get) => ({
-  tables: {},
-  load: (connId, table) => {
-    const key = `${connId}|${table.toLowerCase()}`;
-    if (get().tables[key]) return;
-    set((s) => ({ tables: { ...s.tables, [key]: "loading" } }));
-    api
-      .listRelationships(connId, table)
-      .then((r) => set((s) => ({ tables: { ...s.tables, [key]: r } })))
-      .catch(() => set((s) => ({ tables: { ...s.tables, [key]: "error" } })));
-  },
-}));
+import type { ColumnMeta, TableChoices } from "../types";
 
 const NAME = /^[A-Za-z0-9_]+$/;
 
@@ -38,16 +15,6 @@ export function useColumns(connId: string, table: string | null): ColumnMeta[] |
     if (valid) void useSchema.getState().loadColumns(connId, table!);
   }, [connId, table, valid]);
   return cols;
-}
-
-/** Relationships of `table`: a list, "loading" or "error". */
-export function useTableRelationships(connId: string, table: string | null): Entry | undefined {
-  const valid = !!table && NAME.test(table);
-  const entry = useRelationships((s) => (valid ? s.tables[`${connId}|${table!.toLowerCase()}`] : undefined));
-  useEffect(() => {
-    if (valid) useRelationships.getState().load(connId, table!);
-  }, [connId, table, valid]);
-  return entry;
 }
 
 /** Choice options of `table`'s columns, once loaded. */

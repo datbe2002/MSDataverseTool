@@ -8,9 +8,9 @@ A modern, friendly desktop toolkit for **Power Platform / Dataverse**:
   their definition as JSON or as a designer-style diagram, see child flows and
   where each variable is set and read. **Flow tasks** check the flows of a task
   out into a folder to edit, then compare and review every change.
-- **FetchXML Builder** — write FetchXML or build it with a tree and a
-  properties panel that knows your tables, columns, relationships and choices
-  (think of XrmToolBox's FetchXML Builder).
+- **REST builder** — build Dataverse Web API requests from your tables'
+  metadata, run the read ones and copy any of them as code (think of
+  Dataverse REST Builder).
 
 ## Download
 
@@ -55,14 +55,19 @@ is only needed for the TDS endpoint and for INSERT / UPDATE / DELETE.
   (with a CLAUDE.md for whoever edits them); every save is compared with the
   original and the cloud as a JSON diff or side by side in the designer, with
   checks for broken references and a warning when the cloud changed meanwhile.
-- 🧩 **FetchXML Builder** — an XML editor with autocomplete (tables, the right
-  table's columns, operators for the column's type, choice values) and a
-  visual builder: a tree of the query plus a properties panel with column
-  pickers, joins from real relationships (N:1, 1:N, N:N) and conditions with
-  operators that fit the column. Checks the query against the environment
-  before it runs, pages through results (Next page / Load all), counts rows
-  without reading them, opens system and personal views (read only) and
-  `.xml` files, several tabs per environment, and exports rows to CSV / JSON.
+- 🖥️ **Desktop flows** — the RPA flows of an environment (drafts too) with
+  their inputs and outputs, their run history with the error, inputs and
+  outputs of each run, and the machines and machine groups that run them
+  (last heartbeat, agent version). Read only.
+- 🧩 **REST builder** — build Web API requests with pickers that know the
+  environment's tables, columns, choices and relationships: Retrieve, Retrieve
+  multiple (`$select`, `$filter`, `$orderby`, `$expand`, `$top`, `$count`),
+  FetchXML (editor with autocomplete and checks), functions, and — as code
+  only for now — Create, Update, Delete, Associate, Disassociate and actions.
+  Read requests run in the app (Next page / Load all, grid or JSON, export to
+  CSV / JSON); every request is generated as Xrm.WebApi, fetch,
+  XMLHttpRequest, raw HTTP, C# (HttpClient) and the Power Automate Dataverse
+  action to use. Several tabs per environment.
 
 ## Prerequisites
 

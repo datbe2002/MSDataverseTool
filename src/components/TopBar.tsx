@@ -3,7 +3,8 @@ import { useStore, activeTabOf } from "../store";
 import { tagStyle } from "../lib/tags";
 import { ROUTES } from "../lib/navigation";
 import { splitStatements } from "../lib/sqlStatements";
-import { useFetchXml, activeRunOf } from "../lib/fetchXmlStore";
+import { useRest, activeRunOf, activeTabOf as activeRestTab } from "../lib/restStore";
+import { isWrite } from "../lib/restModel";
 import { ConnectionSwitcher } from "./ConnectionSwitcher";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { Play, Loader, Sun, Moon, Search } from "./Icon";
@@ -21,7 +22,7 @@ interface Props {
 
 export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject, onPalette }: Props) {
   const isQuery = useMatch(ROUTES.query) !== null;
-  const isFetchXml = useMatch(ROUTES.fetchxml) !== null;
+  const isRest = useMatch(ROUTES.rest) !== null;
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const run = useStore((s) => s.run);
@@ -33,8 +34,9 @@ export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject,
   const active = connections.find((c) => c.id === activeId) ?? null;
   const style = active?.tag ? tagStyle(active.color) : null;
   const runKey = useStore((s) => s.keybindings.run[0]);
-  const fetchRun = useFetchXml((s) => activeRunOf(s, activeId));
-  const fetchBusy = fetchRun?.status === "running" || !!fetchRun?.loadingMore;
+  const restRun = useRest((s) => activeRunOf(s, activeId));
+  const restBusy = restRun?.status === "running" || !!restRun?.loadingMore;
+  const restWrite = useRest((s) => (activeId ? isWrite(activeRestTab(s, activeId).request.kind) : false));
 
   const runLabel = running
     ? "Running…"
@@ -85,16 +87,16 @@ export function TopBar({ onEdit, onAdd, onDiscover, onAddProject, onEditProject,
               {!running && runKey && <span className="-mr-1 ml-1 rounded bg-white/15 px-1.5 py-px font-mono text-[10.5px] font-normal">{runKey}</span>}
             </button>
           )}
-          {isFetchXml && (
+          {isRest && (
             <button
-              onClick={() => void useFetchXml.getState().run()}
-              disabled={fetchBusy || !active}
+              onClick={() => void useRest.getState().run()}
+              disabled={restBusy || !active || restWrite}
               className="btn btn-primary"
-              title={active ? "Execute the FetchXML query" : "Select a connection first"}
+              title={!active ? "Select a connection first" : restWrite ? "Writes aren't sent from here yet — copy the code" : "Send the request (reads only)"}
             >
-              {fetchBusy ? <Loader size={14} /> : <Play size={12} />}
-              {fetchBusy ? "Running…" : "Execute"}
-              {!fetchBusy && runKey && <span className="-mr-1 ml-1 rounded bg-white/15 px-1.5 py-px font-mono text-[10.5px] font-normal">{runKey}</span>}
+              {restBusy ? <Loader size={14} /> : <Play size={12} />}
+              {restBusy ? "Sending…" : "Execute"}
+              {!restBusy && !restWrite && runKey && <span className="-mr-1 ml-1 rounded bg-white/15 px-1.5 py-px font-mono text-[10.5px] font-normal">{runKey}</span>}
             </button>
           )}
         </div>

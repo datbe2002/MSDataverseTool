@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, activeProjectOf } from "../store";
 import { useSchema } from "../lib/schema";
 import { useFlows } from "../lib/flows";
-import { useFetchXml } from "../lib/fetchXmlStore";
+import { useRest } from "../lib/restStore";
+import { blankRequest } from "../lib/restModel";
 import { ROUTES, flowRoute, navigate, webResourceRoute } from "../lib/navigation";
 import { kindOf, listCache as webResourceCache } from "../lib/webresources";
 import { rank, type PaletteItem } from "../lib/palette";
@@ -26,7 +27,7 @@ import {
   Folder,
   LogIn,
   LogOut,
-  FileCode,
+  Send,
   Globe,
   PanelLeftClose,
   CornerDownLeft,
@@ -59,7 +60,6 @@ export function usePaletteShortcut(toggle: () => void) {
 }
 
 const tableSql = (table: string) => `SELECT TOP 100 *\nFROM ${table}`;
-const tableFetch = (table: string) => `<fetch top="50">\n  <entity name="${table}">\n    <all-attributes />\n  </entity>\n</fetch>`;
 
 /** First meaningful line of a query, for a one-line label. */
 function oneLine(sql: string): string {
@@ -123,12 +123,19 @@ export function CommandPalette({ onClose, openers }: { onClose: () => void; open
       navigate(ROUTES.query);
     });
     if (activeId) {
-      act("new-fetch", "New FetchXML query", <FileCode size={15} />, () => {
-        if (!useFetchXml.getState().newTab(activeId)) {
-          s.pushToast({ tone: "warning", title: "Tab limit reached", body: "Close a FetchXML tab first." });
-        }
-        navigate(ROUTES.fetchxml);
-      });
+      act(
+        "new-rest",
+        "New Web API request",
+        <Send size={15} />,
+        () => {
+          if (!useRest.getState().newTab(activeId)) {
+            s.pushToast({ tone: "warning", title: "Tab limit reached", body: "Close a request tab first." });
+          }
+          navigate(ROUTES.rest);
+        },
+        undefined,
+        "rest builder odata fetchxml"
+      );
     }
     act(
       "theme",
@@ -215,12 +222,12 @@ export function CommandPalette({ onClose, openers }: { onClose: () => void; open
             ? [
                 {
                   key: "alt" as const,
-                  label: "open in FetchXML",
+                  label: "open in REST builder",
                   run: () => {
-                    if (!useFetchXml.getState().newTab(activeId, tableFetch(t.logicalName))) {
-                      s.pushToast({ tone: "warning", title: "Tab limit reached", body: "Close a FetchXML tab first." });
+                    if (!useRest.getState().newTab(activeId, blankRequest("retrieveMultiple", t.logicalName))) {
+                      s.pushToast({ tone: "warning", title: "Tab limit reached", body: "Close a request tab first." });
                     }
-                    navigate(ROUTES.fetchxml);
+                    navigate(ROUTES.rest);
                   },
                 },
               ]

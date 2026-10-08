@@ -157,7 +157,7 @@ function tableFor(tag: string, attrs: Record<string, string>, stack: Open[], tex
 
 let registered = false;
 
-/** Once per app: completions for the FetchXML tool's editors (`fetch-*.xml` models only). */
+/** Once per app: completions for the REST builder's FetchXML editors (`fetch-*.xml` models only). */
 export function registerFetchCompletion(monaco: typeof Monaco) {
   if (registered) return;
   registered = true;

@@ -266,9 +266,6 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
   }
   .dark .popover .modal-footer { background: var(--s1); }
   .popover { background: var(--s2); border-color: var(--line-strong); }
-  /* FetchXML builder: the element picked in the tree, in the XML editor */
-  .fx-selected-line { background: color-mix(in oklab, var(--brand) 9%, transparent); }
-  .fx-selected-gutter { background: var(--brand); width: 3px !important; margin-left: 3px; }
   .menu-item {
     display: flex; width: 100%; align-items: center; gap: 6px;
     height: 28px; padding: 0 8px; border-radius: 6px;

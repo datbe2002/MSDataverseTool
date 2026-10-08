@@ -108,6 +108,8 @@ export interface TableMeta {
   logicalName: string;
   displayName: string;
   isCustom: boolean;
+  /** Web API collection (`accounts`); empty when the Web API can't read the table. */
+  entitySetName: string;
 }
 
 export interface ColumnMeta {
@@ -391,42 +393,7 @@ export interface FetchPage {
   throttled: number;
 }
 
-/** A way to join a table (`list_relationships`), as `<link-entity>` attributes. */
-export interface Relationship {
-  kind: "manyToOne" | "oneToMany" | "manyToMany";
-  schemaName: string;
-  /** Joined table (`name`); for N:N the table on the other side. */
-  table: string;
-  /** Column on `table` (`from`). */
-  from: string;
-  /** Column on the queried table (`to`); for N:N its key. */
-  to: string;
-  /** N:N: the intersect table, joined first (from = intersectFrom, to = to), then `table` (from = from, to = intersectTo). */
-  intersect?: string;
-  intersectFrom?: string;
-  intersectTo?: string;
-}
-
-/** A saved view of a table (`list_views`): system (`savedquery`) or personal (`userquery`). */
-export interface SavedView {
-  id: string;
-  name: string;
-  personal: boolean;
-  queryType: number;
-  /** "Public", "Advanced Find", "Lookup", "Personal", … */
-  typeLabel: string;
-  isDefault: boolean;
-  description?: string;
-  fetchXml: string;
-}
-
-export interface ViewList {
-  views: SavedView[];
-  /** Personal views couldn't be read (system views still listed). */
-  personalError: string | null;
-}
-
-/** A FetchXML file opened / saved on this computer. */
+/** A file the app saved for the user (exported rows, a web resource). */
 export interface XmlFile {
   path: string;
   name: string;
@@ -434,10 +401,59 @@ export interface XmlFile {
   contents?: string;
 }
 
-/** A table's key and name columns (`table_keys`). */
-export interface TableKeys {
+/** A read-only Web API request's answer (`webapi_get`); HTTP errors arrive here too. */
+export interface ApiResponse {
+  status: number;
+  ok: boolean;
+  /** The URL sent, percent-encoded. */
+  url: string;
+  /** JSON body; null when empty or not JSON. */
+  body: unknown;
+  /** The body when it wasn't JSON. */
+  text?: string;
+  elapsedMs: number;
+  bytes: number;
+  throttled: number;
+}
+
+/** A column as the REST builder sees it (`rest_table`). */
+export interface RestColumn {
+  logicalName: string;
+  displayName: string;
+  attributeType: string;
+  /** `AttributeTypeName`, e.g. "MultiSelectPicklistType", "FileType". */
+  typeName: string;
+  /** Set on columns that belong to another (`owneridname` → `ownerid`). */
+  attributeOf?: string;
+  readable: boolean;
+  creatable: boolean;
+  updatable: boolean;
+  /** Tables a lookup can point at. */
+  targets?: string[];
+}
+
+/** A navigation property: `$expand`, `@odata.bind`, associate. */
+export interface NavProperty {
+  name: string;
+  /** "single" = this table's lookup (N:1); "collection" = 1:N or N:N. */
+  kind: "single" | "collection";
+  relationship: "manyToOne" | "oneToMany" | "manyToMany";
+  schemaName: string;
+  /** The table on the other side. */
+  table: string;
+  /** N:1: this table's lookup column; 1:N: the other table's. */
+  column?: string;
+}
+
+export interface RestTable {
+  logicalName: string;
+  displayName: string;
+  collectionDisplayName: string;
+  entitySet: string;
   primaryId: string;
   primaryName: string | null;
+  columns: RestColumn[];
+  navigation: NavProperty[];
 }
 
 /** Server-side filters of the plug-in trace log list (`trace_logs`). */
@@ -550,6 +566,141 @@ export interface JobDetail extends JobRow {
   message: string;
   friendlyMessage: string;
   createdBy: string;
+}
+
+/* ---------- Desktop flows (RPA, read only) ---------- */
+
+/** A desktop flow (`workflow` with category 6). */
+export interface DesktopFlow {
+  id: string;
+  name: string;
+  description: string;
+  /** 0 Draft, 1 Activated, 2 Suspended. */
+  state: number;
+  stateLabel: string;
+  /** e.g. "Power Automate Desktop", "Selenium IDE". */
+  kind: string | null;
+  managed: boolean;
+  owner: string;
+  modifiedOn: string;
+  modifiedBy: string;
+  createdOn: string;
+}
+
+/** An input or output variable of a desktop flow. */
+export interface DesktopFlowParam {
+  name: string;
+  kind: string;
+  description: string;
+  default: string | null;
+  sensitive: boolean;
+}
+
+export interface DesktopFlowDetail {
+  inputs: DesktopFlowParam[];
+  outputs: DesktopFlowParam[];
+  schemaError: string | null;
+}
+
+export type DesktopRunStatusFilter = "failed" | "running" | "waiting" | "succeeded" | "canceled";
+
+/** Server-side filters of the desktop flow run list (`desktop_flow_runs`). */
+export interface DesktopRunFilter {
+  since?: string | null;
+  status?: DesktopRunStatusFilter | null;
+  flowId?: string | null;
+  machineId?: string | null;
+  groupId?: string | null;
+  /** 0 Local, 1 Attended, 2 Unattended. */
+  runMode?: number | null;
+  text?: string | null;
+  /** Only the newest `top` runs. */
+  top?: number | null;
+}
+
+/** A `flowsession` row as the list shows it. */
+export interface DesktopRun {
+  id: string;
+  name: string;
+  /** 1 Paused, 2 Running, 3 Waiting, 4 Succeeded, 5 Skipped, 6 Suspended, 7 Cancelled, 8 Failed, 9 Faulted, 10 Timed out, 11 Aborted… */
+  status: number;
+  statusLabel: string;
+  state: number;
+  createdOn: string;
+  startedOn: string | null;
+  completedOn: string | null;
+  runMode: number | null;
+  runModeLabel: string | null;
+  trigger: string | null;
+  test: boolean;
+  flowId: string | null;
+  flowName: string | null;
+  machineId: string | null;
+  machineName: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  owner: string;
+  sessionUser: string | null;
+  processVersion: string | null;
+  errorCode: string | null;
+  /** First line of the error message. */
+  error: string | null;
+  parentCloudRun: string | null;
+  parentFlowId: string | null;
+  parentDesktopRun: string | null;
+  correlationId: string | null;
+  connectionId: string | null;
+}
+
+export interface DesktopRunPage {
+  rows: DesktopRun[];
+  next: string | null;
+}
+
+export interface DesktopRunDetail extends DesktopRun {
+  errorMessage: string;
+  errorDetails: string;
+  runDetails: string;
+  inputs: string | null;
+  outputs: string | null;
+  filesError: string | null;
+  createdBy: string;
+}
+
+export interface FlowMachine {
+  id: string;
+  name: string;
+  description: string;
+  /** 0 Active, 1 Inactive, 2 Maintenance. */
+  state: number;
+  status: number;
+  statusLabel: string;
+  agentVersion: string | null;
+  lastHeartbeat: string | null;
+  hosting: string | null;
+  sessionCapacity: number | null;
+  groupId: string | null;
+  owner: string;
+  createdOn: string;
+}
+
+export interface FlowMachineGroup {
+  id: string;
+  name: string;
+  description: string;
+  state: number;
+  statusLabel: string;
+  /** The hidden group behind a standalone machine. */
+  implicit: boolean;
+  lastRun: string | null;
+  owner: string;
+  createdOn: string;
+}
+
+export interface FlowMachineList {
+  machines: FlowMachine[];
+  groups: FlowMachineGroup[];
+  groupsError: string | null;
 }
 
 /* ---------- Plug-in registrations (read only) ---------- */

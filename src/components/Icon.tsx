@@ -353,3 +353,19 @@ export const More = (p: IconProps) => (
     <circle cx="19" cy="12" r="1" />
   </svg>
 );
+
+export const Send = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M22 2 11 13" />
+    <path d="m22 2-7 20-4-9-9-4z" />
+  </svg>
+);
+
+/** Desktop flows (RPA). */
+export const Monitor = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2" y="3" width="20" height="14" rx="2" />
+    <path d="M8 21h8M12 17v4" />
+    <path d="m9 10 2 2 4-4" />
+  </svg>
+);

@@ -6,10 +6,11 @@ import { SchemaView } from "./components/SchemaView";
 import { HistoryView } from "./components/HistoryView";
 import { FlowsView } from "./components/FlowsView";
 import { FlowTasksView } from "./components/FlowTasksView";
-import { FetchXmlView } from "./components/FetchXmlView";
+import { RestView } from "./components/RestView";
 import { TracesView } from "./components/TracesView";
 import { JobsView } from "./components/JobsView";
 import { FlowRunsView } from "./components/FlowRunsView";
+import { DesktopFlowsView } from "./components/DesktopFlowsView";
 import { PluginsView } from "./components/PluginsView";
 import { DependenciesView } from "./components/DependenciesView";
 import { SecurityView } from "./components/SecurityView";
@@ -42,10 +43,13 @@ export const router = createHashRouter([
       },
       { path: "flows/:flowId?", element: <FlowsView /> },
       { path: "flowtasks", element: <FlowTasksView /> },
-      { path: "fetchxml", element: <FetchXmlView /> },
+      { path: "rest", element: <RestView /> },
+      // The FetchXML tool became a request type of the REST builder.
+      { path: "fetchxml", element: <Navigate to={ROUTES.rest} replace /> },
       { path: "traces/:traceId?", element: <TracesView /> },
       { path: "jobs/:jobId?", element: <JobsView /> },
       { path: "flowruns", element: <FlowRunsView /> },
+      { path: "desktop-flows/:tab?/:id?", element: <DesktopFlowsView /> },
       { path: "plugins", element: <PluginsView /> },
       { path: "dependencies", element: <DependenciesView /> },
       { path: "security/:tab?", element: <SecurityView /> },

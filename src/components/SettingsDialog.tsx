@@ -353,10 +353,8 @@ function GeneralSection() {
 const BUILT_IN: { label: string; keys: string[]; where?: string }[] = [
   { label: "Command palette", keys: ["Ctrl K", "Ctrl P"] },
   { label: "Collapse or expand the sidebar", keys: ["Ctrl B"] },
-  { label: "Save the query", keys: ["Ctrl S"], where: "SQL, FetchXML" },
-  { label: "Save as…", keys: ["Ctrl Shift S"], where: "FetchXML" },
-  { label: "Open a file", keys: ["Ctrl O"], where: "FetchXML" },
-  { label: "Format the XML", keys: ["Shift Alt F"], where: "FetchXML" },
+  { label: "Save the query", keys: ["Ctrl S"], where: "SQL" },
+  { label: "Format the XML", keys: ["Shift Alt F"], where: "REST builder, FetchXML" },
   { label: "Find a step", keys: ["Ctrl F"], where: "Flows designer" },
 ];
 
@@ -396,7 +394,7 @@ function KeyboardSection() {
     <>
       <Card
         title="Run query"
-        description="Runs the selected text, or the whole script statement by statement. Also runs the FetchXML query in the FetchXML tool."
+        description="Runs the selected text, or the whole script statement by statement. Also sends the request in the REST builder."
         footer={
           <>
             <span className={err ? "text-warning" : undefined} role={err ? "alert" : undefined}>

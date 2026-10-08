@@ -12,7 +12,7 @@ import {
   Check,
   Code,
   Database,
-  FileCode,
+  Send,
   Flow,
   Folder,
   Globe,
@@ -62,7 +62,7 @@ type Step = 0 | 1 | 2 | 3 | 4;
 
 const TOOLS = [
   { icon: Code, name: "SQL", text: "Query tables with SQL. Writes show a preview before anything changes." },
-  { icon: FileCode, name: "FetchXML", text: "Build queries as a tree with autocomplete, or open an existing view." },
+  { icon: Send, name: "Web API", text: "Build Web API requests (OData, FetchXML, functions) and copy them as code." },
   { icon: Flow, name: "Power Automate", text: "Read cloud flows as a diagram, check them out and review edits." },
   { icon: Bug, name: "Monitoring", text: "Plug-in trace logs, system jobs and failed flow runs in one place." },
   { icon: Shield, name: "Configuration", text: "Plug-in steps, dependencies and security roles, read-only." },
@@ -731,7 +731,7 @@ function ReadyStep({ onBack, onFinish }: { onBack: () => void; onFinish: (route?
 
   const jumps = [
     { icon: Code, label: "Write a SQL query", route: ROUTES.query },
-    { icon: FileCode, label: "Build a FetchXML query", route: ROUTES.fetchxml },
+    { icon: Send, label: "Build a Web API request", route: ROUTES.rest },
     { icon: Flow, label: "Browse cloud flows", route: ROUTES.flows },
     { icon: Activity, label: "Check failed jobs", route: ROUTES.jobs },
   ];

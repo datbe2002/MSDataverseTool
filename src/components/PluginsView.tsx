@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useStore } from "../store";
-import { useTables } from "../lib/fetchMeta";
+import { useTables } from "../lib/meta";
 import {
   childrenFrom,
   filterTree,

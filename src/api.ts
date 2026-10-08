@@ -2,6 +2,14 @@ import { invoke as tauriInvoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { withReauth } from "./lib/reauth";
 import type {
   AccessCheck,
+  DesktopFlow,
+  DesktopFlowDetail,
+  DesktopRunDetail,
+  DesktopRunFilter,
+  DesktopRunPage,
+  FlowMachineList,
+  ApiResponse,
+  RestTable,
   DependencyItem,
   DependencyReport,
   FlowMention,
@@ -42,15 +50,12 @@ import type {
   JobPage,
   Project,
   QueryResult,
-  Relationship,
   Settings,
   TableChoices,
-  TableKeys,
   TableMeta,
   TraceDetail,
   TraceFilter,
   TracePage,
-  ViewList,
   XmlFile,
 } from "./types";
 
@@ -158,18 +163,11 @@ export const api = {
   /** Folder picker; null when cancelled. */
   pickFolder: (title: string, start: string | null) => invoke<string | null>("pick_folder", { title, start }),
 
-  /** N:1, 1:N and N:N relationships of a table (for `<link-entity>`). */
-  listRelationships: (connectionId: string, table: string) =>
-    invoke<Relationship[]>("list_relationships", { connectionId, table }),
-  /** System and personal views of a table (read only). */
-  listViews: (connectionId: string, table: string) => invoke<ViewList>("list_views", { connectionId, table }),
-  /** Open dialog for a .xml file; null when cancelled. */
-  openXmlFile: () => invoke<XmlFile | null>("open_xml_file"),
-  /** Writes to `path`, or asks where ("Save as") when it's null; null when cancelled. */
-  saveXmlFile: (contents: string, path: string | null, suggestedName: string | null) =>
-    invoke<XmlFile | null>("save_xml_file", { contents, path, suggestedName }),
-  /** A table's key and name columns. */
-  tableKeys: (connectionId: string, table: string) => invoke<TableKeys>("table_keys", { connectionId, table }),
+  /** A read-only (GET) Web API request: `path` relative to the Web API root, or an `@odata.nextLink`. */
+  webApiGet: (connectionId: string, path: string, prefer: string | null) =>
+    invoke<ApiResponse>("webapi_get", { connectionId, path, prefer }),
+  /** What the REST builder needs about a table: entity set, columns, navigation properties. */
+  restTable: (connectionId: string, table: string) => invoke<RestTable>("rest_table", { connectionId, table }),
   /** Save dialog for exported rows (`extension` "csv" | "json"); null when cancelled. */
   exportFile: (contents: string, suggestedName: string, extension: "csv" | "json") =>
     invoke<XmlFile | null>("export_file", { contents, suggestedName, extension }),
@@ -191,6 +189,18 @@ export const api = {
   /** Opens a record of the environment in the browser. */
   openRecord: (connectionId: string, table: string, id: string) =>
     invoke<void>("open_record", { connectionId, table, id }),
+
+  /** Every desktop flow (drafts included). */
+  desktopFlows: (connectionId: string) => invoke<DesktopFlow[]>("desktop_flows", { connectionId }),
+  /** A desktop flow's input and output variables. */
+  desktopFlow: (connectionId: string, id: string) => invoke<DesktopFlowDetail>("desktop_flow", { connectionId, id }),
+  /** A page of desktop flow runs, newest first; `next` = the previous page's link. */
+  desktopFlowRuns: (connectionId: string, filter: DesktopRunFilter, next: string | null) =>
+    invoke<DesktopRunPage>("desktop_flow_runs", { connectionId, filter, next }),
+  /** One desktop flow run with its error, inputs and outputs. */
+  desktopFlowRun: (connectionId: string, id: string) => invoke<DesktopRunDetail>("desktop_flow_run", { connectionId, id }),
+  /** Machines and machine groups that run desktop flows. */
+  flowMachines: (connectionId: string) => invoke<FlowMachineList>("flow_machines", { connectionId }),
 
   /** Plug-in assemblies, types, service endpoints and a slim index of every step. */
   pluginOverview: (connectionId: string, hideMicrosoft: boolean) =>

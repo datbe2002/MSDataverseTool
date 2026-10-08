@@ -10,7 +10,7 @@ import {
   Clock,
   Loader,
   Flow,
-  FileCode,
+  Send,
   AlertTriangle,
   PanelLeftClose,
   PanelLeftOpen,
@@ -22,6 +22,7 @@ import {
   Globe,
   Gauge,
   Folder,
+  Monitor,
 } from "./Icon";
 import { Logo } from "./Logo";
 import { UpdateNotice } from "./UpdateNotice";
@@ -45,14 +46,15 @@ export const NAV: { tool: string; items: { to: string; label: string; icon: type
     ],
   },
   {
-    tool: "FetchXML",
-    items: [{ to: ROUTES.fetchxml, label: "Builder", icon: FileCode }],
+    tool: "Web API",
+    items: [{ to: ROUTES.rest, label: "REST builder", icon: Send }],
   },
   {
     tool: "Power Automate",
     items: [
       { to: ROUTES.flows, label: "Flows", icon: Flow },
       { to: ROUTES.flowtasks, label: "Tasks", icon: Folder },
+      { to: ROUTES.desktopFlows, label: "Desktop flows", icon: Monitor },
     ],
   },
   {

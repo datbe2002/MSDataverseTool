@@ -8,10 +8,11 @@ export const ROUTES = {
   history: "/sql/history",
   flows: "/flows",
   flowtasks: "/flowtasks",
-  fetchxml: "/fetchxml",
+  rest: "/rest",
   traces: "/traces",
   jobs: "/jobs",
   flowruns: "/flowruns",
+  desktopFlows: "/desktop-flows",
   plugins: "/plugins",
   dependencies: "/dependencies",
   security: "/security",
@@ -24,6 +25,10 @@ export const flowRoute = (flowId: string) => `${ROUTES.flows}/${flowId}`;
 /** A flow task (by folder path), optionally at one of its flows. */
 export const flowTaskRoute = (path: string, flowId?: string | null) =>
   `${ROUTES.flowtasks}?task=${encodeURIComponent(path)}${flowId ? `&flow=${encodeURIComponent(flowId)}` : ""}`;
+
+/** A tab of the Desktop flows tool, optionally at one run / flow / machine. */
+export const desktopRoute = (tab: "runs" | "flows" | "machines", id?: string | null) =>
+  `${ROUTES.desktopFlows}/${tab}${id ? `/${id}` : ""}`;
 
 /** A plug-in trace log; the id is the `plugintracelog` row's id. */
 export const traceRoute = (traceId: string) => `${ROUTES.traces}/${traceId}`;

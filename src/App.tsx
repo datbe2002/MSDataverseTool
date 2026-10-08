@@ -23,7 +23,7 @@ import { RunAccessModal } from "./components/FlowRuns";
 import { matchesBinding } from "./lib/keys";
 import { ROUTES } from "./lib/navigation";
 import { startUpdateChecks } from "./lib/updater";
-import { useFetchXml } from "./lib/fetchXmlStore";
+import { useRest } from "./lib/restStore";
 import { WR_SAVE_EVENT } from "./lib/webresources";
 import type { Connection, Project } from "./types";
 
@@ -41,7 +41,7 @@ export function RootLayout() {
   const saveActiveTab = useStore((s) => s.saveActiveTab);
   const runBindings = useStore((s) => s.keybindings.run);
   const isQuery = useMatch(ROUTES.query) !== null;
-  const isFetchXml = useMatch(ROUTES.fetchxml) !== null;
+  const isRest = useMatch(ROUTES.rest) !== null;
   const isWebResources = useMatch(ROUTES.webresources) !== null;
 
   const [addOpen, setAddOpen] = useState(false);
@@ -81,14 +81,9 @@ export function RootLayout() {
       if (matchesBinding(e, runBindings)) {
         e.preventDefault();
         e.stopPropagation();
-        // The FetchXML tool runs its own query; elsewhere Run means the SQL tool.
-        if (isFetchXml) void useFetchXml.getState().run();
+        // The REST builder sends its own request; elsewhere Run means the SQL tool.
+        if (isRest) void useRest.getState().run();
         else run();
-      } else if (isFetchXml && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s") {
-        // The FetchXML tool saves to a .xml file (Shift = Save as), not a SQL tab.
-        e.preventDefault();
-        e.stopPropagation();
-        void useFetchXml.getState().save(e.shiftKey);
       } else if (isWebResources && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s") {
         // The Web resources tool saves the open web resource (Shift = save and publish).
         e.preventDefault();
@@ -102,7 +97,7 @@ export function RootLayout() {
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [run, runBindings, saveActiveTab, isFetchXml, isWebResources]);
+  }, [run, runBindings, saveActiveTab, isRest, isWebResources]);
 
   const outletContext: LayoutContext = {
     openDiscover: () => setEnvOpen(true),

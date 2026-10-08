@@ -3,6 +3,7 @@ mod config;
 mod connection;
 mod discovery;
 mod deps;
+mod desktopflows;
 mod dml;
 mod engine;
 mod error;
@@ -20,7 +21,7 @@ mod security;
 mod sql;
 mod traces;
 mod update;
-mod views;
+mod webapi;
 mod webresources;
 
 use error::{AppError, AppResult};
@@ -42,7 +43,7 @@ pub struct AppState {
     /// Full rows of recent streamed results whose long text the grid only
     /// got shortened (request id, rows), newest last.
     results: Mutex<std::collections::VecDeque<(String, std::sync::Arc<Vec<Vec<serde_json::Value>>>)>>,
-    /// "<host>|<table>" -> entity set name, for the FetchXML tool.
+    /// "<host>|<table>" -> entity set name, for FetchXML requests.
     entity_sets: Mutex<HashMap<String, String>>,
 }
 
@@ -497,21 +498,6 @@ async fn flow_calls(
         .map_err(AppError::msg)?
 }
 
-#[tauri::command]
-async fn list_relationships(
-    state: State<'_, AppState>,
-    connection_id: String,
-    table: String,
-) -> AppResult<Vec<metadata::Relationship>> {
-    let (conn, project_id) = connection_project(&connection_id)?;
-    let token =
-        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
-    let host = conn.host.clone();
-    tokio::task::spawn_blocking(move || metadata::relationships(&host, &token, &table))
-        .await
-        .map_err(AppError::msg)?
-}
-
 /// A page of plug-in trace logs, newest first (`next`: link from the previous page).
 #[tauri::command]
 async fn trace_logs(
@@ -608,6 +594,41 @@ async fn flow_runs(
     next: Option<String>,
 ) -> AppResult<flowruns::RunPage> {
     on_env(state.inner(), &connection_id, move |host, token| flowruns::list(host, token, &filter, next.as_deref())).await
+}
+
+/// Every desktop flow (`workflow` category 6), drafts included.
+#[tauri::command]
+async fn desktop_flows(state: State<'_, AppState>, connection_id: String) -> AppResult<Vec<desktopflows::DesktopFlow>> {
+    on_env(state.inner(), &connection_id, desktopflows::list_flows).await
+}
+
+/// A desktop flow's input and output variables.
+#[tauri::command]
+async fn desktop_flow(state: State<'_, AppState>, connection_id: String, id: String) -> AppResult<desktopflows::DesktopFlowDetail> {
+    on_env(state.inner(), &connection_id, move |host, token| desktopflows::flow_detail(host, token, &id)).await
+}
+
+/// A page of desktop flow runs (`flowsession`), newest first (`next`: link from the previous page).
+#[tauri::command]
+async fn desktop_flow_runs(
+    state: State<'_, AppState>,
+    connection_id: String,
+    filter: desktopflows::RunFilter,
+    next: Option<String>,
+) -> AppResult<desktopflows::RunPage> {
+    on_env(state.inner(), &connection_id, move |host, token| desktopflows::list_runs(host, token, &filter, next.as_deref())).await
+}
+
+/// One desktop flow run with its error, inputs and outputs.
+#[tauri::command]
+async fn desktop_flow_run(state: State<'_, AppState>, connection_id: String, id: String) -> AppResult<desktopflows::RunDetail> {
+    on_env(state.inner(), &connection_id, move |host, token| desktopflows::run_detail(host, token, &id)).await
+}
+
+/// The machines and machine groups that run desktop flows.
+#[tauri::command]
+async fn flow_machines(state: State<'_, AppState>, connection_id: String) -> AppResult<desktopflows::MachineList> {
+    on_env(state.inner(), &connection_id, desktopflows::list_machines).await
 }
 
 /// How far this account can read `flowrun`: "none", "basic", "local", "deep" or "global".
@@ -982,23 +1003,7 @@ async fn principal_access(
     .await
 }
 
-/// System and personal views of a table, for the FetchXML tool (read only).
-#[tauri::command]
-async fn list_views(
-    state: State<'_, AppState>,
-    connection_id: String,
-    table: String,
-) -> AppResult<views::ViewList> {
-    let (conn, project_id) = connection_project(&connection_id)?;
-    let token =
-        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
-    let host = conn.host.clone();
-    tokio::task::spawn_blocking(move || views::list(&host, &token, &table))
-        .await
-        .map_err(AppError::msg)?
-}
-
-/// A FetchXML file opened or saved by the FetchXML tool.
+/// A file the app saved for the user (exported rows, a web resource).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct XmlFile {
@@ -1008,56 +1013,8 @@ struct XmlFile {
     contents: Option<String>,
 }
 
-#[tauri::command]
-async fn table_keys(
-    state: State<'_, AppState>,
-    connection_id: String,
-    table: String,
-) -> AppResult<metadata::TableKeys> {
-    let (conn, project_id) = connection_project(&connection_id)?;
-    let token =
-        get_access_token(state.inner(), &project_id, &format!("https://{}", conn.host)).await?;
-    let host = conn.host.clone();
-    tokio::task::spawn_blocking(move || metadata::table_keys(&host, &token, &table))
-        .await
-        .map_err(AppError::msg)?
-}
-
-/// Largest file the FetchXML tool opens.
-const MAX_XML_FILE: u64 = 5 * 1024 * 1024;
-
 fn file_name(path: &std::path::Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-}
-
-/// Asks for a `.xml` file and reads it; `None` when the dialog was cancelled.
-#[tauri::command]
-async fn open_xml_file(window: tauri::WebviewWindow) -> AppResult<Option<XmlFile>> {
-    use tauri_plugin_dialog::DialogExt;
-    let picked = tokio::task::spawn_blocking(move || {
-        window
-            .dialog()
-            .file()
-            .set_parent(&window)
-            .set_title("Open FetchXML")
-            .add_filter("FetchXML", &["xml"])
-            .add_filter("All files", &["*"])
-            .blocking_pick_file()
-    })
-    .await
-    .map_err(AppError::msg)?;
-    let Some(picked) = picked else { return Ok(None) };
-    let path = picked.into_path().map_err(AppError::msg)?;
-    if std::fs::metadata(&path)?.len() > MAX_XML_FILE {
-        return Err(AppError::msg("This file is larger than 5 MB — it isn't a FetchXML query."));
-    }
-    let bytes = std::fs::read(&path)?;
-    let text = String::from_utf8(bytes).map_err(|_| AppError::msg("This file isn't UTF-8 text."))?;
-    Ok(Some(XmlFile {
-        name: file_name(&path),
-        path: path.to_string_lossy().to_string(),
-        contents: Some(text.trim_start_matches('\u{feff}').to_string()),
-    }))
 }
 
 /// Saves exported rows (`extension` = "csv" or "json") to a file the user
@@ -1108,53 +1065,7 @@ async fn export_file(
     Ok(Some(XmlFile { name: file_name(&path), path: path.to_string_lossy().to_string(), contents: None }))
 }
 
-/// Writes a FetchXML query to `path`, or to a file the user picks when
-/// `path` is `None` ("Save as"); `None` when that dialog was cancelled.
-/// Only `.xml` files are written.
-#[tauri::command]
-async fn save_xml_file(
-    window: tauri::WebviewWindow,
-    contents: String,
-    path: Option<String>,
-    suggested_name: Option<String>,
-) -> AppResult<Option<XmlFile>> {
-    use tauri_plugin_dialog::DialogExt;
-    let target = match path {
-        Some(p) => std::path::PathBuf::from(p),
-        None => {
-            let name = suggested_name.unwrap_or_else(|| "query.xml".to_string());
-            let picked = tokio::task::spawn_blocking(move || {
-                window
-                    .dialog()
-                    .file()
-                    .set_parent(&window)
-                    .set_title("Save FetchXML")
-                    .set_file_name(name)
-                    .add_filter("FetchXML", &["xml"])
-                    .blocking_save_file()
-            })
-            .await
-            .map_err(AppError::msg)?;
-            let Some(picked) = picked else { return Ok(None) };
-            let mut p = picked.into_path().map_err(AppError::msg)?;
-            if p.extension().is_none() {
-                p.set_extension("xml");
-            }
-            p
-        }
-    };
-    let is_xml = target
-        .extension()
-        .map(|e| e.to_string_lossy().eq_ignore_ascii_case("xml"))
-        .unwrap_or(false);
-    if !is_xml {
-        return Err(AppError::msg("FetchXML is saved as a .xml file."));
-    }
-    std::fs::write(&target, contents.as_bytes())?;
-    Ok(Some(XmlFile { name: file_name(&target), path: target.to_string_lossy().to_string(), contents: None }))
-}
-
-/// One page of a FetchXML query from the FetchXML tool. `entity` is the
+/// One page of a FetchXML query from the REST builder. `entity` is the
 /// root `<entity name>`; the webview adds the paging attributes itself.
 #[tauri::command]
 async fn run_fetchxml(
@@ -1187,6 +1098,26 @@ async fn run_fetchxml(
         .map_err(AppError::msg)??;
     let _ = connection::touch(&connection_id);
     Ok(page)
+}
+
+/// A read-only (GET) Web API request built in the REST builder: `path` is
+/// relative to the Web API root, or an `@odata.nextLink`.
+#[tauri::command]
+async fn webapi_get(
+    state: State<'_, AppState>,
+    connection_id: String,
+    path: String,
+    prefer: Option<String>,
+) -> AppResult<webapi::ApiResponse> {
+    let r = on_env(state.inner(), &connection_id, move |host, token| webapi::get(host, token, &path, prefer.as_deref())).await?;
+    let _ = connection::touch(&connection_id);
+    Ok(r)
+}
+
+/// What the REST builder needs about a table (entity set, columns, navigation properties).
+#[tauri::command]
+async fn rest_table(state: State<'_, AppState>, connection_id: String, table: String) -> AppResult<webapi::RestTable> {
+    on_env(state.inner(), &connection_id, move |host, token| webapi::table(host, token, &table)).await
 }
 
 /// Step 1 of a write: find the affected rows and build the requests.
@@ -1333,12 +1264,17 @@ pub fn run() {
             reveal_flow_task,
             pick_folder,
             run_fetchxml,
-            list_relationships,
-            list_views,
+            webapi_get,
+            rest_table,
             trace_logs,
             trace_log,
             system_jobs,
             system_job,
+            desktop_flows,
+            desktop_flow,
+            desktop_flow_runs,
+            desktop_flow_run,
+            flow_machines,
             open_record,
             plugin_overview,
             plugin_steps,
@@ -1360,9 +1296,6 @@ pub fn run() {
             user_roles,
             role_privileges,
             principal_access,
-            open_xml_file,
-            save_xml_file,
-            table_keys,
             export_file,
             prepare_dml,
             execute_dml,
