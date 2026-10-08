@@ -223,6 +223,10 @@ pub struct FlowDefinition {
     pub modified_on: String,
     pub modified_by: String,
     pub managed: bool,
+    /// `statecode`: 0 off, 1 on, 2 suspended.
+    pub state: i64,
+    /// `@odata.etag`, for an `If-Match` on the next write.
+    pub etag: String,
 }
 
 /// The flow's definition and name, owner of the last change, managed flag.
@@ -231,7 +235,7 @@ pub fn definition_with_meta(host: &str, token: &str, flow_id: &str) -> AppResult
         return Err(AppError::msg(format!("Invalid flow id: {}", flow_id)));
     }
     let url = format!(
-        "https://{}/api/data/v9.2/workflows({})?$select=clientdata,name,modifiedon,ismanaged,_modifiedby_value",
+        "https://{}/api/data/v9.2/workflows({})?$select=clientdata,name,modifiedon,ismanaged,statecode,_modifiedby_value",
         host, flow_id
     );
     let row = get_json(&url, token, Some("odata.include-annotations=\"OData.Community.Display.V1.FormattedValue\""))?;
@@ -245,7 +249,39 @@ pub fn definition_with_meta(host: &str, token: &str, flow_id: &str) -> AppResult
         modified_on: str_field(&row, "modifiedon"),
         modified_by: formatted(&row, "_modifiedby_value"),
         managed: row.get("ismanaged").and_then(|v| v.as_bool()).unwrap_or(false),
+        state: row.get("statecode").and_then(|v| v.as_i64()).unwrap_or(0),
+        etag: str_field(&row, "@odata.etag"),
     })
+}
+
+/// The flow is part of a solution (besides the ones every component is in).
+/// Only those can be changed through Dataverse; "My flows" can't.
+pub fn in_solution(host: &str, token: &str, flow_id: &str) -> AppResult<bool> {
+    if !is_guid(flow_id) {
+        return Err(AppError::msg(format!("Invalid flow id: {}", flow_id)));
+    }
+    let url = format!(
+        "https://{}/api/data/v9.2/solutioncomponents?$select=objectid&$filter=componenttype eq {} and objectid eq {}&$expand=solutionid($select=friendlyname,uniquename,isvisible)",
+        host, COMPONENT_WORKFLOW, flow_id
+    )
+    .replace(' ', "%20");
+    let rows = crate::odata::get_all(url, token, PREFER_ALL_PAGES)?;
+    Ok(parse_solution_components(&rows).get(&flow_id.to_ascii_lowercase()).is_some_and(|names| !names.is_empty()))
+}
+
+/// Replaces the flow's `clientdata`. `etag` makes it fail when the row
+/// changed since it was read (and never creates one).
+pub fn update_definition(host: &str, token: &str, flow_id: &str, clientdata: &str, etag: &str) -> AppResult<()> {
+    if !is_guid(flow_id) {
+        return Err(AppError::msg(format!("Invalid flow id: {}", flow_id)));
+    }
+    let compact = serde_json::from_str::<Value>(clientdata)
+        .map_err(|e| AppError::msg(format!("The definition isn't JSON ({})", e)))?
+        .to_string();
+    let url = format!("https://{}/api/data/v9.2/workflows({})", host, flow_id);
+    let if_match = if etag.is_empty() { "*" } else { etag };
+    crate::http::send("PATCH", &url, token, Some(&serde_json::json!({ "clientdata": compact })), &[("If-Match", if_match)])?;
+    Ok(())
 }
 
 /// Pretty-prints JSON; text that isn't JSON is returned unchanged.

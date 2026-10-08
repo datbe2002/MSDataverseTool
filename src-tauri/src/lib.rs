@@ -742,6 +742,25 @@ async fn update_task_baseline(
     on_env(state.inner(), &connection_id, move |host, token| flowtasks::update_baseline(&path, host, token, &flow_id, mode)).await
 }
 
+/// Deploys a version of a task flow to its environment; only DEV-tagged connections.
+#[tauri::command]
+async fn deploy_task_flow(
+    state: State<'_, AppState>,
+    connection_id: String,
+    path: String,
+    flow_id: String,
+    version: String,
+) -> AppResult<flowtasks::TaskView> {
+    let (conn, _) = connection_project(&connection_id)?;
+    if !conn.tag.as_deref().is_some_and(|t| t.trim().eq_ignore_ascii_case("DEV")) {
+        return Err(AppError::msg(format!(
+            "{} isn't tagged DEV. Flows are only deployed to DEV environments; set the tag in the connection's settings.",
+            conn.name
+        )));
+    }
+    on_env(state.inner(), &connection_id, move |host, token| flowtasks::deploy(&path, host, token, &flow_id, &version)).await
+}
+
 /// Opens the task folder in Explorer.
 #[tauri::command]
 async fn reveal_flow_task(path: String) -> AppResult<()> {
@@ -1340,6 +1359,7 @@ pub fn run() {
             task_flow_text,
             task_live,
             update_task_baseline,
+            deploy_task_flow,
             reveal_flow_task,
             pick_folder,
             run_fetchxml,

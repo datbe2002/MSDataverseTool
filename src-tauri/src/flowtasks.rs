@@ -1029,10 +1029,80 @@ pub fn update_baseline(path: &str, host: &str, token: &str, flow_id: &str, mode:
     }
     let flow = task_flow(&task, flow_id)?;
     let def = crate::flows::definition_with_meta(host, token, &flow.id)?;
-    rebase(&dir, task, &flow.id, def, mode)
+    rebase(&dir, task, &flow.id, def, mode, None)
 }
 
-fn rebase(dir: &Path, mut task: TaskFile, flow_id: &str, def: crate::flows::FlowDefinition, mode: BaselineMode) -> AppResult<TaskView> {
+/// Writes a version of a task flow to the environment (`version` as in
+/// `version_text`): the working copy only as the user reviewed it, or an
+/// earlier version (a revert). Refused unless the flow is unmanaged and in a
+/// solution and the cloud still holds the baseline. The cloud version then
+/// becomes the baseline; the working copy stays as it is.
+pub fn deploy(path: &str, host: &str, token: &str, flow_id: &str, version: &str) -> AppResult<TaskView> {
+    let dir = registered(path)?;
+    let task = read_task(&dir)?;
+    if !task.env.host.eq_ignore_ascii_case(host) {
+        return Err(AppError::msg(format!("This task works on {} ({}).", task.env.name, task.env.host)));
+    }
+    let flow = task_flow(&task, flow_id)?;
+    if version == "baseline" {
+        return Err(AppError::msg("The baseline is what the cloud holds already."));
+    }
+    let text = version_text(path, flow_id, version)?;
+    let hash = hash_text(&text).map_err(|e| AppError::msg(format!("This version isn't valid JSON ({}).", e)))?;
+    // The file can change after the review (it's edited outside the app): only the reviewed text goes.
+    if version == "working" && flow.reviewed_hash.as_deref() != Some(hash.as_str()) {
+        return Err(AppError::msg(if flow.reviewed_hash.is_some() {
+            "The file changed after you reviewed it. Look at it again and mark it reviewed, then deploy."
+        } else {
+            "Mark this version reviewed before deploying it."
+        }));
+    }
+    let cloud = crate::flows::definition_with_meta(host, token, &flow.id)?;
+    if cloud.managed {
+        return Err(AppError::msg(format!("{} is managed in {} — it can't be changed there.", flow.name, task.env.name)));
+    }
+    if !crate::flows::in_solution(host, token, &flow.id)? {
+        return Err(AppError::msg(format!(
+            "{} isn't in a solution, and Dataverse can only change flows that are. Add it to a solution first.",
+            flow.name
+        )));
+    }
+    if hash_text(&cloud.content).ok().as_deref() != Some(flow.baseline_hash.as_str()) {
+        return Err(AppError::msg(format!(
+            "{} changed in {} since its baseline ({}). Update the baseline from the cloud and look at the changes first.",
+            flow.name,
+            task.env.name,
+            if cloud.modified_by.is_empty() { cloud.modified_on.clone() } else { format!("{} by {}", cloud.modified_on, cloud.modified_by) }
+        )));
+    }
+    if let Err(e) = crate::flows::update_definition(host, token, &flow.id, &text, &cloud.etag) {
+        let msg = e.to_string();
+        if msg.contains("(412)") {
+            return Err(AppError::msg(format!("{} changed in {} a moment ago; nothing was deployed. Try again.", flow.name, task.env.name)));
+        }
+        return Err(e);
+    }
+    let after = crate::flows::definition_with_meta(host, token, &flow.id)?;
+    let state_note = (cloud.state == 1 && after.state != 1).then(|| {
+        format!("{} was on and is off now — turn it on in Power Automate to see why it won't start.", flow.name)
+    });
+    let what = if version == "working" { String::new() } else { format!(" (version {})", version) };
+    let message = format!("Deploy {}{} to {}", flow.name, what, task.env.name);
+    let mut view = rebase(&dir, task, &flow.id, after, BaselineMode::Keep, Some(message))?;
+    if let Some(note) = state_note {
+        view.warning = Some(view.warning.map(|w| format!("{} · {}", note, w)).unwrap_or(note));
+    }
+    Ok(view)
+}
+
+fn rebase(
+    dir: &Path,
+    mut task: TaskFile,
+    flow_id: &str,
+    def: crate::flows::FlowDefinition,
+    mode: BaselineMode,
+    message: Option<String>,
+) -> AppResult<TaskView> {
     let text = format!("{}\n", def.content.trim_end());
     let hash = hash_text(&text).map_err(|e| AppError::msg(format!("The flow in the cloud isn't JSON ({})", e)))?;
     let i = task
@@ -1096,7 +1166,9 @@ fn rebase(dir: &Path, mut task: TaskFile, flow_id: &str, def: crate::flows::Flow
     write_task(dir, &task)?;
     write_claude_md(dir, &task, repo)?;
     if repo {
-        let message = if replace_working && edited {
+        let message = if let Some(m) = message {
+            m
+        } else if replace_working && edited {
             format!("Take {} from {} (new baseline)", name, task.env.name)
         } else {
             format!("Update baseline of {} from {}", name, task.env.name)
@@ -1336,6 +1408,8 @@ mod tests {
             modified_on: "2026-10-01T00:00:00Z".into(),
             modified_by: "Dat".into(),
             managed,
+            state: 0,
+            etag: String::new(),
         })
     }
 
@@ -1440,10 +1514,10 @@ mod tests {
         let view = add_fetched(&dir, read_task(&dir).unwrap(), &[&a], vec![definition("F", v1, false)]).unwrap();
         let flow = view.task.flows[0].clone();
         let working = dir.join(working_rel(&flow.folder));
-        let cloud = |v: &str| crate::flows::FlowDefinition { name: "F".into(), content: v.into(), modified_on: "later".into(), modified_by: "An".into(), managed: false };
+        let cloud = |v: &str| crate::flows::FlowDefinition { name: "F".into(), content: v.into(), modified_on: "later".into(), modified_by: "An".into(), managed: false, state: 0, etag: String::new() };
 
         // Not edited: both follow the cloud.
-        let view = rebase(&dir, read_task(&dir).unwrap(), &flow.id, cloud("{\"v\": 2}"), BaselineMode::Keep).unwrap();
+        let view = rebase(&dir, read_task(&dir).unwrap(), &flow.id, cloud("{\"v\": 2}"), BaselineMode::Keep, None).unwrap();
         assert_eq!(view.task.flows[0].baseline_hash, hash_text("{\"v\": 2}").unwrap());
         assert_eq!(view.flows[0].working_hash, Some(view.task.flows[0].baseline_hash.clone()));
         assert_eq!(view.task.flows[0].cloud_modified_by, "An");
@@ -1453,7 +1527,7 @@ mod tests {
         std::fs::write(&working, "{\"v\": 2, \"mine\": true}").unwrap();
         let mine = hash_text("{\"v\": 2, \"mine\": true}").unwrap();
         set_reviewed(&view.path, &flow.id, Some(mine.clone())).unwrap();
-        let view = rebase(&dir, read_task(&dir).unwrap(), &flow.id, cloud("{\"v\": 3}"), BaselineMode::Keep).unwrap();
+        let view = rebase(&dir, read_task(&dir).unwrap(), &flow.id, cloud("{\"v\": 3}"), BaselineMode::Keep, None).unwrap();
         assert_eq!(view.flows[0].working_hash.as_deref(), Some(mine.as_str()));
         assert_eq!(view.task.flows[0].reviewed_hash, None, "review starts over");
         let earlier: Vec<Version> = versions(&view.path, &flow.id).unwrap().into_iter().filter(|v| v.id.starts_with("base:")).collect();
@@ -1463,7 +1537,7 @@ mod tests {
         assert!(version_text(&view.path, &flow.id, "base:../x.json").is_err());
 
         // Edited + Take: the edits are kept in history, the file is the cloud's.
-        let view = rebase(&dir, read_task(&dir).unwrap(), &flow.id, cloud("{\"v\": 4}"), BaselineMode::Take).unwrap();
+        let view = rebase(&dir, read_task(&dir).unwrap(), &flow.id, cloud("{\"v\": 4}"), BaselineMode::Take, None).unwrap();
         assert_eq!(view.flows[0].working_hash, Some(hash_text("{\"v\": 4}").unwrap()));
         let kept = versions(&view.path, &flow.id).unwrap();
         let has_mine = kept
@@ -1493,5 +1567,42 @@ mod tests {
         assert!(in_one_drive(Path::new("c:/users/me/onedrive/T1")));
         assert!(!in_one_drive(Path::new("C:\\Users\\me\\OneDriveBackup\\T1")));
         assert!(!in_one_drive(Path::new("C:\\Users\\me\\HexaTasks\\T1")));
+    }
+
+    #[test]
+    fn deploy_refuses_a_version_nobody_reviewed_before_reaching_the_cloud() {
+        let parent = temp_dir("deploy");
+        let view = create(NewTask {
+            parent: parent.to_string_lossy().to_string(),
+            folder: "T".into(),
+            name: "T".into(),
+            ticket: String::new(),
+            description: String::new(),
+            env: TaskEnv { host: "dev".into(), name: "DEV".into() },
+            git: false,
+        })
+        .unwrap();
+        let path = view.path.clone();
+        let dir = PathBuf::from(&path);
+        let a = AddFlow { id: "3f2a9c1e-0000-4000-8000-000000000002".into(), name: "F".into() };
+        let view = add_fetched(&dir, read_task(&dir).unwrap(), &[&a], vec![definition("F", "{\"v\": 1}", false)]).unwrap();
+        let flow = view.task.flows[0].clone();
+        std::fs::write(dir.join(working_rel(&flow.folder)), "{\"v\": 2}
+").unwrap();
+
+        let other = deploy(&path, "elsewhere", "t", &flow.id, "working").unwrap_err().to_string();
+        assert!(other.contains("This task works on"), "{}", other);
+        let unreviewed = deploy(&path, "dev", "t", &flow.id, "working").unwrap_err().to_string();
+        assert!(unreviewed.contains("Mark this version reviewed"), "{}", unreviewed);
+        let edited = hash_text("{\"v\": 2}").unwrap();
+        set_reviewed(&path, &flow.id, Some(edited)).unwrap();
+        std::fs::write(dir.join(working_rel(&flow.folder)), "{\"v\": 3}
+").unwrap();
+        let stale = deploy(&path, "dev", "t", &flow.id, "working").unwrap_err().to_string();
+        assert!(stale.contains("changed after you reviewed"), "{}", stale);
+        assert!(deploy(&path, "dev", "t", &flow.id, "baseline").is_err());
+
+        forget(&path).unwrap();
+        let _ = std::fs::remove_dir_all(parent);
     }
 }

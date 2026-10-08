@@ -117,3 +117,31 @@ mod tests {
         assert_eq!((sizes.wire, sizes.decoded), (7, 7));
     }
 }
+
+/// Sends a write; errors carry the server's message.
+pub fn send(method: &str, url: &str, token: &str, body: Option<&serde_json::Value>, headers: &[(&str, &str)]) -> crate::error::AppResult<ureq::Response> {
+    let mut req = ureq::request(method, url)
+        .set("Authorization", &format!("Bearer {}", token))
+        .set("Accept", "application/json")
+        .set("OData-MaxVersion", "4.0")
+        .set("OData-Version", "4.0");
+    for (k, v) in headers {
+        req = req.set(k, v);
+    }
+    let resp = match body {
+        Some(b) => req.set("Content-Type", "application/json; charset=utf-8").send_string(&b.to_string()),
+        None => req.call(),
+    };
+    match resp {
+        Ok(r) => Ok(r),
+        Err(ureq::Error::Status(code, r)) => {
+            let text = text(r);
+            let msg = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| v.pointer("/error/message")?.as_str().map(|s| s.to_string()))
+                .unwrap_or(text);
+            Err(crate::error::AppError::msg(format!("Request failed ({}): {}", code, msg)))
+        }
+        Err(e) => Err(crate::error::AppError::msg(e.to_string())),
+    }
+}

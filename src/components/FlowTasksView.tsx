@@ -7,7 +7,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { api } from "../api";
 import { useStore } from "../store";
 import { useFlows } from "../lib/flows";
-import { POLL_MS, STATUS_BADGE, STATUS_DOT, STATUS_LABEL, drifted, flowStatus, useFlowTasks } from "../lib/flowTasks";
+import { POLL_MS, STATUS_BADGE, STATUS_DOT, STATUS_LABEL, checkFlow, drifted, flowChanges, flowStatus, useFlowTasks } from "../lib/flowTasks";
 import { ROUTES, flowRoute, flowTaskRoute } from "../lib/navigation";
 import { relativeTime } from "../lib/history";
 import { friendlyError } from "../lib/errors";
@@ -16,8 +16,8 @@ import { Menu } from "./WebResourceDialogs";
 import { TagBadge } from "./TagBadge";
 import { AddFlowsDialog, EditTaskDialog, NewTaskDialog } from "./FlowTaskDialogs";
 import { FlowTaskCompare } from "./FlowTaskCompare";
-import { AlertTriangle, ArrowLeft, ArrowUpRight, Check, Copy, Folder, Loader, More, Plus, Refresh } from "./Icon";
-import type { Connection, TaskSummary, TaskView } from "../types";
+import { AlertTriangle, ArrowLeft, ArrowUpRight, Check, Copy, Folder, Loader, More, Plus, Refresh, Upload } from "./Icon";
+import type { Connection, FlowMeta, TaskSummary, TaskVersion, TaskView } from "../types";
 
 const time = (iso: string | null | undefined) => (iso ? relativeTime(Date.parse(iso)) : "—");
 
@@ -642,6 +642,7 @@ function FlowPane({ view, flowId, conn, onRemove, onErrors }: { view: TaskView; 
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState(0);
   const [rebasing, setRebasing] = useState(false);
+  const [deploying, setDeploying] = useState<"reviewed" | "version" | null>(null);
 
   const flow = view.task.flows.find((f) => f.id === flowId)!;
   const file = view.flows.find((f) => f.id === flowId);
@@ -704,6 +705,16 @@ function FlowPane({ view, flowId, conn, onRemove, onErrors }: { view: TaskView; 
                 <Check size={14} /> Mark reviewed
               </button>
             )}
+            {status === "reviewed" && (
+              <button
+                className="btn btn-primary"
+                onClick={() => setDeploying("reviewed")}
+                disabled={!conn || !!drift}
+                title={!conn ? `Add ${view.task.env.name} as a connection first` : drift ? "The cloud changed since the baseline: update the baseline first" : `Write the reviewed version to ${view.task.env.name}`}
+              >
+                <Upload size={14} /> Deploy
+              </button>
+            )}
             <button
               className="btn btn-ghost"
               onClick={() => navigate(flowRoute(flowId))}
@@ -717,6 +728,7 @@ function FlowPane({ view, flowId, conn, onRemove, onErrors }: { view: TaskView; 
               icon={<More size={15} />}
               items={[
                 { label: "Update baseline from cloud…", run: () => setRebasing(true), disabled: !conn },
+                { label: "Deploy an earlier version…", run: () => setDeploying("version"), disabled: !conn },
                 { label: "Copy flow id", run: () => copy(flowId, "flow id") },
                 null,
                 { label: "Remove from task…", run: onRemove, danger: true },
@@ -763,6 +775,21 @@ function FlowPane({ view, flowId, conn, onRemove, onErrors }: { view: TaskView; 
           onErrors={setErrors}
         />
       </div>
+      {deploying && conn && (
+        <DeployDialog
+          view={view}
+          flowId={flowId}
+          conn={conn}
+          envFlows={envFlows}
+          revert={deploying === "version"}
+          onDone={(v) => {
+            setView(v);
+            void loadLive(conn.id, view.path);
+            pushToast({ tone: v.warning ? "warning" : "success", title: `Deployed to ${view.task.env.name}`, body: v.warning ?? undefined });
+          }}
+          onClose={() => setDeploying(null)}
+        />
+      )}
       {rebasing && conn && (
         <UpdateBaselineDialog
           view={view}
@@ -777,6 +804,134 @@ function FlowPane({ view, flowId, conn, onRemove, onErrors }: { view: TaskView; 
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Writes the reviewed working copy, or an earlier version (a revert), to the
+ * task's environment. The backend also refuses a connection not tagged DEV, a
+ * managed flow, one in no solution, and a cloud that moved on from the baseline.
+ */
+function DeployDialog({
+  view,
+  flowId,
+  conn,
+  envFlows,
+  revert,
+  onDone,
+  onClose,
+}: {
+  view: TaskView;
+  flowId: string;
+  conn: Connection;
+  envFlows: FlowMeta[] | null;
+  revert: boolean;
+  onDone: (v: TaskView) => void;
+  onClose: () => void;
+}) {
+  const flow = view.task.flows.find((f) => f.id === flowId)!;
+  const [versions, setVersions] = useState<TaskVersion[] | null>(null);
+  const [version, setVersion] = useState(revert ? "" : "working");
+  const [text, setText] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.taskFlowText(view.path, flowId, "baseline").then(setBaseline, () => setBaseline(null));
+    if (!revert) return;
+    api
+      .taskFlowVersions(view.path, flowId)
+      .then((v) => {
+        setVersions(v);
+        setVersion((cur) => cur || (v[0]?.id ?? ""));
+      })
+      .catch((e) => setError(friendlyError(String(e))));
+  }, [view.path, flowId, revert]);
+  useEffect(() => {
+    if (!version) return;
+    let alive = true;
+    setText(null);
+    api.taskFlowText(view.path, flowId, version).then(
+      (t) => alive && setText(t),
+      (e) => alive && setError(friendlyError(String(e)))
+    );
+    return () => {
+      alive = false;
+    };
+  }, [view.path, flowId, version]);
+
+  const problems = useMemo(() => (text === null ? null : checkFlow(text, { baseline, flows: envFlows })), [text, baseline, envFlows]);
+  const errors = problems?.filter((p) => p.level === "error").length ?? 0;
+  const changed = useMemo(() => (text !== null && baseline !== null ? flowChanges(baseline, text).length : null), [text, baseline]);
+  const meta = envFlows?.find((f) => f.id.toLowerCase() === flowId);
+  const isDev = conn.tag?.trim().toUpperCase() === "DEV";
+  const blocked = !isDev
+    ? `${conn.name} isn't tagged DEV. Flows are only deployed to DEV environments; set the tag in the connection's settings.`
+    : errors > 0
+      ? `This version has ${errors} ${errors === 1 ? "error" : "errors"}; it wouldn't save in Power Automate.`
+      : null;
+
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(await api.deployTaskFlow(conn.id, view.path, flowId, version));
+      onClose();
+    } catch (e) {
+      setError(friendlyError(String(e)));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={revert ? "Deploy an earlier version" : "Deploy the reviewed version"} icon={<Upload size={16} className="text-brand" />} onClose={() => !busy && onClose()}>
+      <div className="space-y-4">
+        <p className="text-sm leading-relaxed text-muted">
+          Replaces “{flow.name}” in <span className="font-medium text-fg">{view.task.env.name}</span> with{" "}
+          {revert ? "the version you pick" : "the working copy as you reviewed it"}. What's there now is kept as an “Earlier baseline”, so this can be undone
+          the same way.
+        </p>
+        {revert && (
+          <label className="block space-y-1">
+            <span className="block text-xs font-medium text-muted">Version</span>
+            <select className="input" value={version} onChange={(e) => setVersion(e.target.value)} disabled={!versions?.length}>
+              {versions === null && <option>Loading…</option>}
+              {versions?.length === 0 && <option>No earlier versions</option>}
+              {versions?.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label || "Version"} · {time(v.at)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <ul className="space-y-1 text-xs text-muted">
+          <li>
+            {changed === null
+              ? "Comparing with the baseline…"
+              : changed === 0
+                ? "Same steps as the baseline."
+                : `${changed} ${changed === 1 ? "step differs" : "steps differ"} from the baseline.`}
+          </li>
+          {meta && (
+            <li>
+              It's {meta.state === 1 ? "on" : "off"} in {view.task.env.name} and stays {meta.state === 1 ? "on" : "off"}.
+            </li>
+          )}
+        </ul>
+        {blocked && <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{blocked}</p>}
+        {error && <p className="break-words rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={go} disabled={busy || !!blocked || text === null || !version} autoFocus>
+            {busy && <Loader size={13} />} Deploy to {view.task.env.name}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
