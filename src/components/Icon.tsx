@@ -207,6 +207,18 @@ export const PanelLeftOpen = (p: IconProps) => (
   </svg>
 );
 
+export const Maximize = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+  </svg>
+);
+
+export const Minimize = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+  </svg>
+);
+
 export const Search = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="11" cy="11" r="7" />

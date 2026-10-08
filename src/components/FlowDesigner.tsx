@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
+  ControlButton,
   Controls,
   Handle,
   MarkerType,
@@ -25,7 +26,7 @@ import { queryTerms, searchSteps } from "../lib/flowSearch";
 import { StepSearchBox } from "./StepSearch";
 import { StepIcon } from "./StepIcon";
 import { FlowStepPanel, type PanelTab } from "./FlowStepPanel";
-import { ArrowUpRight, ChevronDown } from "./Icon";
+import { ArrowUpRight, ChevronDown, Maximize, Minimize } from "./Icon";
 import type { DiffMark } from "../lib/flowTasks";
 
 interface Props {
@@ -253,6 +254,25 @@ export function FlowDesigner(props: Props) {
 function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName, onOpenFlow, childFlow, onShowInJson, theme, marks }: Props) {
   const rf = useReactFlow();
   const boxRef = useRef<HTMLDivElement>(null);
+  // Covers the app window (the webview refuses the Fullscreen API). Esc leaves it once no step is selected.
+  const [fullScreen, setFullScreen] = useState(false);
+  useEffect(() => {
+    if (!fullScreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !selectedId) setFullScreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullScreen, selectedId]);
+
+  const fit = useCallback(() => void rf.fitView({ padding: 0.08, duration: 300 }), [rf]);
+  // Expand / Collapse all re-fit once the new layout reached React Flow (its effects run before ours).
+  const [fitRequest, setFitRequest] = useState(0);
+  useEffect(() => {
+    if (!fitRequest) return;
+    const frame = requestAnimationFrame(fit);
+    return () => cancelAnimationFrame(frame);
+  }, [fitRequest, fit]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   // "Run a Child Flow" steps showing their child flow inside them.
   const [inlined, setInlined] = useState<Set<string>>(() => new Set());
@@ -458,7 +478,7 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
 
   return (
     <div
-      className="@container/designer relative flex h-full min-h-0"
+      className={`@container/designer flex min-h-0 bg-[var(--editor-bg)] ${fullScreen ? "fixed inset-0 z-50" : "relative h-full"}`}
       onKeyDown={(e) => {
         if (e.key === "Escape" && selectedId) onSelect(null);
       }}
@@ -495,10 +515,14 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
               current={current}
               onPick={(i) => onSelect(matches[i].step.id)}
             />
-            <button className="btn btn-secondary btn-sm !h-8 !rounded-[7px]" onClick={() => void rf.fitView({ padding: 0.08, duration: 300 })} title="Show the whole flow">
-              Fit
-            </button>
-            <button className="btn btn-secondary btn-sm !h-8 !rounded-[7px]" onClick={() => setCollapsed(new Set())} title="Open every Scope, loop, Condition and Switch">
+            <button
+              className="btn btn-secondary btn-sm !h-8 !rounded-[7px]"
+              onClick={() => {
+                setCollapsed(new Set());
+                setFitRequest((n) => n + 1);
+              }}
+              title="Open every Scope, loop, Condition and Switch"
+            >
               Expand all
             </button>
             <button
@@ -506,13 +530,24 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
               onClick={() => {
                 setCollapsed(new Set(containerIds(own)));
                 setInlined(new Set());
+                setFitRequest((n) => n + 1);
               }}
               title="Show every Scope, loop, Condition and Switch as one card, and hide child flows"
             >
               Collapse all
             </button>
           </Panel>
-          <Controls showInteractive={false} position="bottom-left" />
+          <Controls showInteractive={false} position="bottom-left">
+            <ControlButton
+              onClick={() => setFullScreen((on) => !on)}
+              aria-pressed={fullScreen}
+              aria-label={fullScreen ? "Exit full screen" : "Full screen"}
+              title={fullScreen ? "Exit full screen (Esc)" : "Full screen"}
+            >
+              {/* React Flow fills control icons; these are stroked. */}
+              {fullScreen ? <Minimize style={{ fill: "none" }} /> : <Maximize style={{ fill: "none" }} />}
+            </ControlButton>
+          </Controls>
           <MiniMap
             className="@max-xl:!hidden short:!hidden"
             position="bottom-right"

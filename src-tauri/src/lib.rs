@@ -573,6 +573,16 @@ fn open_record(connection_id: String, table: String, id: String) -> AppResult<()
     Ok(())
 }
 
+/// Opens a Microsoft Learn page (the Flow analysis "Docs" links) in the browser.
+#[tauri::command]
+fn open_docs(url: String) -> AppResult<()> {
+    if !url.starts_with("https://learn.microsoft.com/") {
+        return Err(AppError::msg("Only Microsoft Learn links can be opened"));
+    }
+    webbrowser::open(&url)?;
+    Ok(())
+}
+
 /// Runs `f(host, token)` on a blocking thread with the connection's token.
 async fn on_env<T: Send + 'static>(
     state: &AppState,
@@ -751,6 +761,25 @@ async fn update_task_baseline(
     mode: flowtasks::BaselineMode,
 ) -> AppResult<flowtasks::TaskView> {
     on_env(state.inner(), &connection_id, move |host, token| flowtasks::update_baseline(&path, host, token, &flow_id, mode)).await
+}
+
+/// Deploys a version of a task flow to its environment; only DEV-tagged connections.
+#[tauri::command]
+async fn deploy_task_flow(
+    state: State<'_, AppState>,
+    connection_id: String,
+    path: String,
+    flow_id: String,
+    version: String,
+) -> AppResult<flowtasks::TaskView> {
+    let (conn, _) = connection_project(&connection_id)?;
+    if !conn.tag.as_deref().is_some_and(|t| t.trim().eq_ignore_ascii_case("DEV")) {
+        return Err(AppError::msg(format!(
+            "{} isn't tagged DEV. Flows are only deployed to DEV environments; set the tag in the connection's settings.",
+            conn.name
+        )));
+    }
+    on_env(state.inner(), &connection_id, move |host, token| flowtasks::deploy(&path, host, token, &flow_id, &version)).await
 }
 
 /// Opens the task folder in Explorer.
@@ -1261,6 +1290,7 @@ pub fn run() {
             task_flow_text,
             task_live,
             update_task_baseline,
+            deploy_task_flow,
             reveal_flow_task,
             pick_folder,
             run_fetchxml,
@@ -1276,6 +1306,7 @@ pub fn run() {
             desktop_flow_run,
             flow_machines,
             open_record,
+            open_docs,
             plugin_overview,
             plugin_steps,
             plugin_step,

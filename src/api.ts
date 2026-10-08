@@ -159,6 +159,9 @@ export const api = {
   /** Reads a task flow from the cloud again as its baseline; "take" also replaces the edited file (edits kept in history). */
   updateTaskBaseline: (connectionId: string, path: string, flowId: string, mode: "keep" | "take") =>
     invoke<TaskView>("update_task_baseline", { connectionId, path, flowId, mode }),
+  /** Writes "working" (as reviewed) or an earlier version of a task flow to its environment (DEV only). */
+  deployTaskFlow: (connectionId: string, path: string, flowId: string, version: string) =>
+    invoke<TaskView>("deploy_task_flow", { connectionId, path, flowId, version }),
   revealFlowTask: (path: string) => invoke<void>("reveal_flow_task", { path }),
   /** Folder picker; null when cancelled. */
   pickFolder: (title: string, start: string | null) => invoke<string | null>("pick_folder", { title, start }),
@@ -189,6 +192,8 @@ export const api = {
   /** Opens a record of the environment in the browser. */
   openRecord: (connectionId: string, table: string, id: string) =>
     invoke<void>("open_record", { connectionId, table, id }),
+  /** Opens a learn.microsoft.com page in the browser. */
+  openDocs: (url: string) => invoke<void>("open_docs", { url }),
 
   /** Every desktop flow (drafts included). */
   desktopFlows: (connectionId: string) => invoke<DesktopFlow[]>("desktop_flows", { connectionId }),

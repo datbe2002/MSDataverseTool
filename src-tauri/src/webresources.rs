@@ -11,6 +11,7 @@
 //! Content stays base64 end to end; the webview decodes text and shows images.
 
 use crate::error::{AppError, AppResult};
+use crate::http::send;
 use crate::metadata::get_json;
 use crate::odata::{bool_field, formatted, get_all, guid, int, opt_str, str_field};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
@@ -350,34 +351,6 @@ fn latest_content(base: &str, token: &str, id: &str) -> AppResult<String> {
     match get_json(&format!("{}/webresourceset({})/Microsoft.Dynamics.CRM.RetrieveUnpublished()", base, id), token, None) {
         Ok(v) => Ok(str_field(&v, "content")),
         Err(_) => Ok(str_field(&get_json(&format!("{}/webresourceset({})?$select=content", base, id), token, None)?, "content")),
-    }
-}
-
-/// Sends a write; errors carry the server's message.
-fn send(method: &str, url: &str, token: &str, body: Option<&Value>, headers: &[(&str, &str)]) -> AppResult<ureq::Response> {
-    let mut req = ureq::request(method, url)
-        .set("Authorization", &format!("Bearer {}", token))
-        .set("Accept", "application/json")
-        .set("OData-MaxVersion", "4.0")
-        .set("OData-Version", "4.0");
-    for (k, v) in headers {
-        req = req.set(k, v);
-    }
-    let resp = match body {
-        Some(b) => req.set("Content-Type", "application/json; charset=utf-8").send_string(&b.to_string()),
-        None => req.call(),
-    };
-    match resp {
-        Ok(r) => Ok(r),
-        Err(ureq::Error::Status(code, r)) => {
-            let text = crate::http::text(r);
-            let msg = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| v.pointer("/error/message")?.as_str().map(|s| s.to_string()))
-                .unwrap_or(text);
-            Err(AppError::msg(format!("Request failed ({}): {}", code, msg)))
-        }
-        Err(e) => Err(AppError::msg(e.to_string())),
     }
 }
 
