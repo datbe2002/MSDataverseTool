@@ -142,8 +142,10 @@ export const api = {
   /** A step's inputs or outputs, behind the link the API gave. */
   flowRunContent: (connectionId: string, link: string) => invoke<RunStepContent>("flow_run_content", { connectionId, link }),
   /** Searches one run's step inputs / outputs for a value (any case). */
-  flowRunSearch: (connectionId: string, flowId: string, runName: string, needle: string, scope: RunSearchScope) =>
-    invoke<{ hits: RunSearchHit[]; skipped: number }>("flow_run_search", { connectionId, flowId, runName, needle, scope }),
+  flowRunSearch: (connectionId: string, flowId: string, runName: string, needle: string, scope: RunSearchScope, searchId: string) =>
+    invoke<{ hits: RunSearchHit[]; skipped: number }>("flow_run_search", { connectionId, flowId, runName, needle, scope, searchId }),
+  /** Ends the runs a stopped search is still reading in the backend. */
+  flowRunSearchStop: (searchId: string) => invoke<void>("flow_run_search_stop", { searchId }),
   /** Opens the run in the Power Automate portal. */
   openFlowRun: (connectionId: string, flowId: string, runName: string) =>
     invoke<void>("open_flow_run", { connectionId, flowId, runName }),

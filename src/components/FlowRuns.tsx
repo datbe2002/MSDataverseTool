@@ -249,8 +249,8 @@ export function RunDetail({
 }: {
   connId: string;
   row: RunRow;
-  /** Step to show first (by its name), e.g. where a search found its value. */
-  focusStep?: string | null;
+  /** Step (and loop repetition) to show first, e.g. where a search found its value. */
+  focusStep?: StepFocus | null;
   /** The run list beside it is hidden (more room for the steps). */
   listHidden?: boolean;
   onToggleList?: () => void;
@@ -452,7 +452,7 @@ function RunStepsSection({
   runName: string;
   running: boolean;
   /** Step to show first instead of the first failure. */
-  focusStep: string | null;
+  focusStep: StepFocus | null;
 }) {
   const theme = useStore((s) => s.theme);
   const steps = runSteps.useEntry(connId, stepsKey(flowId, runName));
@@ -500,13 +500,14 @@ function RunStepsSection({
   useEffect(() => {
     if (opened.current || !lines.length || (view === "diagram" && !outline && waitingForDefinition)) return;
     opened.current = true;
-    const asked = focusStep ? lines.find((l) => l.kind === "step" && l.step.name === focusStep) : undefined;
+    const asked = focusStep ? lines.find((l) => l.kind === "step" && l.step.name === focusStep.step) : undefined;
     const first = asked?.kind === "step" ? asked.step : firstFailure(lines);
     if (!first) return;
     setOpen(new Set([first.name]));
     const line = lines.find((l) => l.kind === "step" && l.step === first);
     if (line?.kind === "step" && line.node) setPicked(line.node.id);
   }, [lines, view, outline, waitingForDefinition, focusStep]);
+  const atOf = (name: string | undefined) => (focusStep && name === focusStep.step ? focusStep.repetition : null);
   const toggle = (name: string) =>
     setOpen((s) => {
       const next = new Set(s);
@@ -556,6 +557,7 @@ function RunStepsSection({
           className="btn btn-ghost btn-icon btn-sm"
           onClick={() => {
             opened.current = false;
+            stepRepetitions.forget(connId);
             steps.reload();
           }}
           disabled={steps.loading}
@@ -616,6 +618,7 @@ function RunStepsSection({
                     runName={runName}
                     node={node}
                     step={byId!.get(node.id) ?? null}
+                    at={atOf(byId!.get(node.id)?.name)}
                     onClose={() => setPicked(null)}
                   />
                 ),
@@ -648,6 +651,7 @@ function RunStepsSection({
                     line={l}
                     flat={onlyFailed}
                     open={open.has(l.step.name)}
+                    at={atOf(l.step.name)}
                     onToggle={() => toggle(l.step.name)}
                   />
                 )
@@ -660,6 +664,11 @@ function RunStepsSection({
     </section>
   );
 }
+
+/** Which loop items a repetition ran for, outermost first. */
+type Repetition = RunStep["repetition"];
+/** A step to open first, and the repetition to pick when it's in a loop. */
+type StepFocus = { step: string; repetition: Repetition };
 
 type StepsView = "diagram" | "list";
 const STEPS_VIEW_KEY = "cds.runSteps.view";
@@ -682,6 +691,7 @@ function RunStepPanel({
   runName,
   node,
   step,
+  at,
   onClose,
 }: {
   connId: string;
@@ -689,6 +699,7 @@ function RunStepPanel({
   runName: string;
   node: OutlineNode;
   step: RunStep | null;
+  at: Repetition | null;
   onClose: () => void;
 }) {
   const tone = step ? stepTone(step.status) : null;
@@ -720,7 +731,7 @@ function RunStepPanel({
               {duration !== null && tone !== "skipped" && <span>took {formatDuration(duration)}</span>}
             </div>
             {(step.repetitionCount ?? 0) > 0 ? (
-              <Repetitions connId={connId} flowId={flowId} runName={runName} step={step} />
+              <Repetitions connId={connId} flowId={flowId} runName={runName} step={step} at={at} />
             ) : (
               <StepDetail connId={connId} step={step} />
             )}
@@ -766,6 +777,7 @@ function StepItem({
   line,
   flat,
   open,
+  at,
   onToggle,
 }: {
   connId: string;
@@ -775,6 +787,7 @@ function StepItem({
   /** No nesting (the Failed filter). */
   flat: boolean;
   open: boolean;
+  at: Repetition | null;
   onToggle: () => void;
 }) {
   const { step } = line;
@@ -821,7 +834,7 @@ function StepItem({
             {duration !== null && <span>took {formatDuration(duration)}</span>}
             <span className="font-mono">{step.name}</span>
           </div>
-          {looped ? <Repetitions connId={connId} flowId={flowId} runName={runName} step={step} /> : <StepDetail connId={connId} step={step} />}
+          {looped ? <Repetitions connId={connId} flowId={flowId} runName={runName} step={step} at={at} /> : <StepDetail connId={connId} step={step} />}
         </div>
       </Collapse>
     </li>
@@ -844,12 +857,31 @@ function StepDetail({ connId, step }: { connId: string; step: RunStep }) {
   );
 }
 
-/** The repetitions of a step in a loop: pick one (the first failure to start with). */
-function Repetitions({ connId, flowId, runName, step }: { connId: string; flowId: string; runName: string; step: RunStep }) {
+/** The repetitions of a step in a loop: pick one (`at`, else the first failure, to start with). */
+function Repetitions({
+  connId,
+  flowId,
+  runName,
+  step,
+  at,
+}: {
+  connId: string;
+  flowId: string;
+  runName: string;
+  step: RunStep;
+  at: Repetition | null;
+}) {
   const reps = stepRepetitions.useEntry(connId, repetitionsKey(flowId, runName, step.name));
   const [picked, setPicked] = useState<string | null>(null);
+  // A search hit in this loop: show its repetition over the one picked by hand.
+  useEffect(() => {
+    if (at) setPicked(null);
+  }, [at]);
   const list = reps.data ?? [];
-  const current = list.find((r) => r.name === picked) ?? list.find((r) => stepTone(r.status) === "failed") ?? list[0] ?? null;
+  const isAt = (r: RunStep) =>
+    !!at?.length && r.repetition.length === at.length && r.repetition.every((x, i) => x.scopeName === at[i].scopeName && x.itemIndex === at[i].itemIndex);
+  const current =
+    list.find((r) => r.name === picked) ?? list.find(isAt) ?? list.find((r) => stepTone(r.status) === "failed") ?? list[0] ?? null;
   const label = (r: RunStep) =>
     r.repetition.length ? r.repetition.map((x) => `${x.scopeName.replace(/_/g, " ")} #${x.itemIndex + 1}`).join(" › ") : r.name;
 
@@ -1118,7 +1150,7 @@ export function FlowRunsTab({
   const [listHidden, setListHidden] = useState(readListHidden);
   // Find in run data: the search shown in place of the list, and the step to open a found run at.
   const search = useRunSearch((s) => searchOf(s.searches, connId, flowId));
-  const [focus, setFocus] = useState<{ runId: string; step: string } | null>(null);
+  const [focus, setFocus] = useState<({ runId: string } & StepFocus) | null>(null);
   const definition = useFlows((s) => s.definitions[definitionKey(connId, flow.id)]);
   const loadDefinition = useFlows((s) => s.loadDefinition);
   useEffect(() => {
@@ -1126,8 +1158,12 @@ export function FlowRunsTab({
   }, [definition, connId, flow.id, loadDefinition]);
   const options = useMemo(() => stepOptions(definition ? buildOutline(definition) : null), [definition]);
   const names = useMemo(() => new Map(options.map((o) => [o.key, o.name])), [options]);
-  const openFound = (run: RunRow, step: string) => {
-    setFocus({ runId: run.id, step });
+  const openFound = (run: RunRow, step: string, repetition: Repetition = []) => {
+    setFocus((f) =>
+      f && f.runId === run.id && f.step === step && JSON.stringify(f.repetition) === JSON.stringify(repetition)
+        ? f
+        : { runId: run.id, step, repetition }
+    );
     onRun(run.id);
   };
   const toggleList = () =>
@@ -1309,7 +1345,7 @@ export function FlowRunsTab({
             key={selected.id}
             connId={connId}
             row={selected}
-            focusStep={focus?.runId === selected.id ? focus.step : null}
+            focusStep={focus?.runId === selected.id ? focus : null}
             listHidden={listHidden}
             onToggleList={toggleList}
           />
@@ -1559,7 +1595,7 @@ function RunSearchResults({
   runId: string | null;
   /** Step name in the definition → its display name. */
   names: Map<string, string>;
-  onOpen: (run: RunRow, step: string) => void;
+  onOpen: (run: RunRow, step: string, repetition: Repetition) => void;
 }) {
   const search = useRunSearch((s) => searchOf(s.searches, connId, flowId));
   const clear = useRunSearch((s) => s.clear);
@@ -1609,20 +1645,24 @@ function RunSearchResults({
           <div className="mt-1.5 space-y-0.5 text-[11px] text-subtle">
             {search.capped && <div>Only the newest {MAX_RUNS.toLocaleString()} runs of the window are searched.</div>}
             {search.failed > 0 && <div className="text-warning">{search.failed.toLocaleString()} run(s) couldn't be searched.</div>}
-            {search.skipped > 0 && <div>{search.skipped.toLocaleString()} input/output bodies couldn't be read.</div>}
+            {search.skipped > 0 && (
+              <div className="text-warning">
+                {search.skipped.toLocaleString()} inputs/outputs weren't searched in full (unreadable, too large, or past the limits): the value may be in them.
+              </div>
+            )}
           </div>
         )}
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="Runs where it was found">
         {matches.map(({ run, hits }) => (
           <li key={run.id} className="fade-in">
-            <RunItem row={run} selected={run.id === runId} onOpen={() => onOpen(run, hits[0].step)} />
+            <RunItem row={run} selected={run.id === runId} onOpen={() => onOpen(run, hits[0].step, hits[0].repetition)} />
             <div className="mb-1.5 ml-5 space-y-0.5">
               {hits.slice(0, 3).map((h, i) => (
                 <button
                   key={i}
                   className="block w-full rounded-md px-2 py-1 text-left hover:bg-s2"
-                  onClick={() => onOpen(run, h.step)}
+                  onClick={() => onOpen(run, h.step, h.repetition)}
                   title="Open the run at this step"
                 >
                   <div className="truncate text-[11.5px] text-muted">

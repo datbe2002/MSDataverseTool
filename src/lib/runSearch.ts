@@ -52,8 +52,21 @@ export interface RunSearch {
 
 const keyOf = (connId: string, flowId: string) => `${connId}|${flowId}`;
 
+interface Token {
+  id: string;
+  cancelled: boolean;
+}
+
 /** Searches still going, by key: Stop flips its flag. */
-const live = new Map<string, { cancelled: boolean }>();
+const live = new Map<string, Token>();
+/** Search ids are unique across reloads too: the backend keeps the stopped ones. */
+let searches = 0;
+
+/** Stops a search here and in the backend (which would finish the runs it's reading). */
+function cancel(token: Token) {
+  token.cancelled = true;
+  api.flowRunSearchStop(token.id).catch(() => {});
+}
 
 export const useRunSearch = create<{
   searches: Record<string, RunSearch>;
@@ -77,8 +90,8 @@ export const useRunSearch = create<{
     start: (connId, flowId, needle, scope, scopeLabel, window) => {
       const key = keyOf(connId, flowId);
       const previous = live.get(key);
-      if (previous) previous.cancelled = true;
-      const token = { cancelled: false };
+      if (previous) cancel(previous);
+      const token: Token = { id: `${Date.now()}-${++searches}`, cancelled: false };
       live.set(key, token);
       set((st) => ({
         searches: {
@@ -105,7 +118,7 @@ export const useRunSearch = create<{
       const queue: RunRow[] = [];
       let listed = false;
       const fail = (message: string) => {
-        token.cancelled = true;
+        cancel(token);
         update(key, () => ({ status: "error", error: message }));
       };
 
@@ -142,7 +155,7 @@ export const useRunSearch = create<{
             continue;
           }
           try {
-            const result = await apiGuarded(connId, api.flowRunSearch(connId, flowId, run.runName, needle, scope));
+            const result = await apiGuarded(connId, api.flowRunSearch(connId, flowId, run.runName, needle, scope, token.id));
             if (token.cancelled) return;
             update(key, (s) => ({
               scanned: s.scanned + 1,
@@ -173,7 +186,7 @@ export const useRunSearch = create<{
     stop: (connId, flowId) => {
       const key = keyOf(connId, flowId);
       const token = live.get(key);
-      if (token) token.cancelled = true;
+      if (token) cancel(token);
       live.delete(key);
       if (get().searches[key]?.status === "running") update(key, () => ({ status: "stopped" }));
     },
