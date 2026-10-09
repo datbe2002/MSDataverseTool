@@ -5,7 +5,8 @@ import { create } from "zustand";
 import { api } from "../api";
 import { createPagedStore } from "./pagedStore";
 import { createEnvCache } from "./envCache";
-import type { RunOutcome, RunPage, RunReadDepth, RunRow, RunSummary } from "../types";
+import type { OutlineNode } from "./flowOutline";
+import type { RunOutcome, RunPage, RunReadDepth, RunRow, RunStep, RunStepContent, RunSteps, RunSummary } from "../types";
 
 export type RunRange = "1h" | "24h" | "7d" | "28d";
 
@@ -274,4 +275,202 @@ export function retentionLabel(seconds: number | null): string | null {
   if (seconds <= 0) return "not kept";
   const days = seconds / 86_400;
   return days >= 1 ? `${Math.round(days)} day${Math.round(days) === 1 ? "" : "s"}` : `${Math.round(seconds / 3600)} h`;
+}
+
+// ---- A run's steps (Power Automate API) ----
+
+/** The backend's "this account can't use the Power Automate API" (`flowapi::DENIED`). */
+const DENIED = "FLOW_API_DENIED:";
+
+export function deniedReason(e: unknown): string | null {
+  const m = String((e as Error)?.message ?? e);
+  const i = m.indexOf(DENIED);
+  return i < 0 ? null : m.slice(i + DENIED.length).trim();
+}
+
+/** Refused before any call: the tenant wouldn't give this app a Power Automate token. */
+export const isTokenDenial = (reason: string) => reason.startsWith("Sign-in to Power Automate was refused");
+
+/**
+ * Environments where the Power Automate API said no (the reason), and the one
+ * App shows a dialog for: once per environment per session.
+ */
+export const useFlowApiAccess = create<{
+  denied: Record<string, string>;
+  dialog: { connId: string; reason: string } | null;
+  seen: Record<string, true>;
+  deny: (connId: string, reason: string) => void;
+  allow: (connId: string) => void;
+  dismiss: () => void;
+}>((set, get) => ({
+  denied: {},
+  dialog: null,
+  seen: {},
+  deny: (connId, reason) => {
+    const first = !get().seen[connId];
+    set((s) => ({
+      denied: { ...s.denied, [connId]: reason },
+      dialog: first ? { connId, reason } : s.dialog,
+      seen: { ...s.seen, [connId]: true },
+    }));
+  },
+  allow: (connId) => {
+    if (!(connId in get().denied)) return;
+    set((s) => {
+      const { [connId]: _, ...rest } = s.denied;
+      return { denied: rest };
+    });
+  },
+  dismiss: () => set({ dialog: null }),
+}));
+
+/** Records a denial (the error then reads as its reason alone) or that the API answered. */
+export function apiGuarded<T>(connId: string, p: Promise<T>): Promise<T> {
+  return p.then(
+    (v) => {
+      useFlowApiAccess.getState().allow(connId);
+      return v;
+    },
+    (e) => {
+      const reason = deniedReason(e);
+      if (reason === null) throw e;
+      useFlowApiAccess.getState().deny(connId, reason);
+      throw new Error(reason);
+    }
+  );
+}
+
+const stepKey = (...parts: string[]) => JSON.stringify(parts);
+
+/** A run's trigger and actions; key = `stepsKey(flowId, runName)`. */
+export const runSteps = createEnvCache<RunSteps>((connId, key) => {
+  const [flowId, runName] = JSON.parse(key) as [string, string];
+  return apiGuarded(connId, api.flowRunSteps(connId, flowId, runName));
+});
+export const stepsKey = (flowId: string, runName: string) => stepKey(flowId, runName);
+
+/** Every repetition of a looped step; key = `repetitionsKey(flowId, runName, step)`. */
+export const stepRepetitions = createEnvCache<RunStep[]>((connId, key) => {
+  const [flowId, runName, step] = JSON.parse(key) as [string, string, string];
+  return apiGuarded(connId, api.flowRunStepRepetitions(connId, flowId, runName, step));
+});
+export const repetitionsKey = (flowId: string, runName: string, step: string) => stepKey(flowId, runName, step);
+
+/** Inputs / outputs behind a step's link (key = the link). */
+export const stepContent = createEnvCache<RunStepContent>((connId, link) => apiGuarded(connId, api.flowRunContent(connId, link)));
+
+export type StepTone = "failed" | "succeeded" | "skipped" | "running" | "cancelled" | "other";
+
+/** Statuses as Logic Apps writes them (Succeeded, Failed, TimedOut, Skipped, Running, Waiting, Cancelled, Aborted…). */
+export function stepTone(status: string): StepTone {
+  const s = status.toLowerCase();
+  if (s === "failed" || s === "timedout" || s === "faulted") return "failed";
+  if (s === "succeeded") return "succeeded";
+  if (s === "skipped" || s === "ignored") return "skipped";
+  if (s === "running" || s === "waiting" || s === "suspended" || s === "paused") return "running";
+  if (s === "cancelled" || s === "aborted") return "cancelled";
+  return "other";
+}
+
+export const STEP_DOT: Record<StepTone, string> = {
+  failed: "bg-danger",
+  succeeded: "bg-success",
+  skipped: "bg-line-strong",
+  running: "bg-info",
+  cancelled: "bg-warning",
+  other: "bg-line-strong",
+};
+
+/** Steps that hold other steps: they fail because something inside them did. */
+const CONTAINERS = new Set(["scope", "foreach", "if", "switch", "until"]);
+
+/** A line of the steps list: a step that ran (or was skipped), or a branch heading. */
+export type StepLine =
+  | { kind: "step"; step: RunStep; depth: number; label: string; type: string | null; container: boolean; node: OutlineNode | null }
+  | { kind: "branch"; label: string; depth: number };
+
+const pretty = (name: string) => name.replace(/_/g, " ");
+
+/**
+ * The run's steps in the definition's order (nested, with branch headings), or in
+ * the order the API listed them when there's no definition. Steps the definition
+ * doesn't have (it changed since the run) come last.
+ */
+export function stepLines(steps: RunSteps, outline: OutlineNode[] | null): StepLine[] {
+  const byName = new Map(steps.actions.map((a) => [a.name, a]));
+  const used = new Set<string>();
+  const out: StepLine[] = [];
+  const line = (step: RunStep, depth: number, node: OutlineNode | null): StepLine => ({
+    kind: "step",
+    step,
+    depth,
+    label: node?.name ?? pretty(step.name),
+    type: node?.type ?? null,
+    container: CONTAINERS.has((node?.actionType ?? "").toLowerCase()),
+    node,
+  });
+
+  const walk = (nodes: OutlineNode[], depth: number): StepLine[] => {
+    const lines: StepLine[] = [];
+    for (const n of nodes) {
+      if (n.kind === "branch") {
+        const inner = walk(n.children, depth + 1);
+        if (inner.length) lines.push({ kind: "branch", label: n.name, depth }, ...inner);
+        continue;
+      }
+      if (n.kind === "trigger") continue;
+      const step = byName.get(n.key);
+      if (step) {
+        used.add(n.key);
+        lines.push(line(step, depth, n));
+      }
+      lines.push(...walk(n.children, step ? depth + 1 : depth));
+    }
+    return lines;
+  };
+
+  if (steps.trigger) {
+    const node = outline?.find((n) => n.kind === "trigger" && n.key === steps.trigger!.name) ?? null;
+    out.push({ ...(line(steps.trigger, 0, node) as Extract<StepLine, { kind: "step" }>), type: node?.type ?? "Trigger" });
+  }
+  if (outline) out.push(...walk(outline, 0));
+  const rest = steps.actions.filter((a) => !used.has(a.name));
+  if (!outline) rest.sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
+  out.push(...rest.map((a) => line(a, 0, null)));
+  return out;
+}
+
+/** Where to look first: the first failed step that isn't just a container of failures. */
+export function firstFailure(lines: StepLine[]): RunStep | null {
+  const failed = lines.filter((l): l is Extract<StepLine, { kind: "step" }> => l.kind === "step" && stepTone(l.step.status) === "failed");
+  return (failed.find((l) => !l.container) ?? failed[0])?.step ?? null;
+}
+
+/** Each step's result by its outline id (`OutlineNode.id`), for the Designer. */
+export function runStepsById(steps: RunSteps, outline: OutlineNode[]): Map<string, RunStep> {
+  const byName = new Map(steps.actions.map((a) => [a.name, a]));
+  const out = new Map<string, RunStep>();
+  const walk = (nodes: OutlineNode[]) => {
+    for (const n of nodes) {
+      const step = n.kind === "trigger" ? (steps.trigger?.name === n.key ? steps.trigger : null) : n.kind === "branch" ? null : byName.get(n.key);
+      if (step) out.set(n.id, step);
+      walk(n.children);
+    }
+  };
+  walk(outline);
+  return out;
+}
+
+/** How long a step took; null while it runs or when unknown. */
+export function stepDuration(s: Pick<RunStep, "startTime" | "endTime">): number | null {
+  if (!s.startTime || !s.endTime) return null;
+  return Math.max(0, Date.parse(s.endTime) - Date.parse(s.startTime));
+}
+
+/** "1.2 KB" for a content size. */
+export function byteSize(n: number | null): string | null {
+  if (n === null || n < 0) return null;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }

@@ -8,6 +8,7 @@ mod dml;
 mod engine;
 mod error;
 mod fetchxml;
+mod flowapi;
 mod flowruns;
 mod flows;
 mod flowtasks;
@@ -653,6 +654,99 @@ async fn flow_run_summary(state: State<'_, AppState>, connection_id: String, sin
     on_env(state.inner(), &connection_id, move |host, token| flowruns::summary(host, token, &since)).await
 }
 
+/// A Power Automate API token. When the refresh fails for it (an `AADSTS…`
+/// answer) while the Dataverse one still works, the tenant blocks this resource
+/// for the account (Conditional Access, consent): signing in again won't help,
+/// so it's FLOW_API_DENIED rather than SIGN_IN_REQUIRED.
+async fn flow_api_token(state: &AppState, project_id: &str, host: &str) -> AppResult<String> {
+    match get_access_token(state, project_id, flowapi::RESOURCE).await {
+        Ok(token) => Ok(token),
+        Err(e) => {
+            let msg = e.to_string();
+            // Not an answer about this resource, or the sign-in itself expired.
+            let expired = ["AADSTS70008", "AADSTS70043", "AADSTS700082", "AADSTS50133", "AADSTS50173"];
+            if !msg.contains("AADSTS") || expired.iter().any(|c| msg.contains(c)) {
+                return Err(e);
+            }
+            get_access_token(state, project_id, &format!("https://{}", host)).await?;
+            let reason = msg
+                .strip_prefix(auth::SIGN_IN_REQUIRED)
+                .and_then(|rest| rest.splitn(3, ':').nth(2))
+                .unwrap_or(&msg);
+            Err(flowapi::denied(&format!("Sign-in to Power Automate was refused: {}", reason.trim())))
+        }
+    }
+}
+
+/// Runs `f(host, dataverse token, Power Automate token)` on a blocking thread.
+async fn on_flow_api<T: Send + 'static>(
+    state: &AppState,
+    connection_id: &str,
+    f: impl FnOnce(&str, &str, &str) -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    let (conn, project_id) = connection_project(connection_id)?;
+    let dv = get_access_token(state, &project_id, &format!("https://{}", conn.host)).await?;
+    let api = flow_api_token(state, &project_id, &conn.host).await?;
+    let host = conn.host.clone();
+    tokio::task::spawn_blocking(move || f(&host, &dv, &api)).await.map_err(AppError::msg)?
+}
+
+/// A cloud flow run's trigger and actions, from the Power Automate API.
+#[tauri::command]
+async fn flow_run_steps(
+    state: State<'_, AppState>,
+    connection_id: String,
+    flow_id: String,
+    run_name: String,
+) -> AppResult<flowapi::RunSteps> {
+    on_flow_api(state.inner(), &connection_id, move |host, dv, api| flowapi::run_steps(host, dv, api, &flow_id, &run_name)).await
+}
+
+/// Every repetition of a step inside a loop.
+#[tauri::command]
+async fn flow_run_step_repetitions(
+    state: State<'_, AppState>,
+    connection_id: String,
+    flow_id: String,
+    run_name: String,
+    step: String,
+) -> AppResult<Vec<flowapi::Step>> {
+    on_flow_api(state.inner(), &connection_id, move |host, dv, api| flowapi::repetitions(host, dv, api, &flow_id, &run_name, &step)).await
+}
+
+/// Searches one run's step inputs and outputs for a value (Runs › Find in run data).
+#[tauri::command]
+async fn flow_run_search(
+    state: State<'_, AppState>,
+    connection_id: String,
+    flow_id: String,
+    run_name: String,
+    needle: String,
+    scope: flowapi::SearchScope,
+) -> AppResult<flowapi::RunSearch> {
+    on_flow_api(state.inner(), &connection_id, move |host, dv, api| {
+        flowapi::search_run(host, dv, api, &flow_id, &run_name, &needle, &scope)
+    })
+    .await
+}
+
+/// A step's inputs or outputs, behind the signed link the API gave.
+#[tauri::command]
+async fn flow_run_content(state: State<'_, AppState>, connection_id: String, link: String) -> AppResult<flowapi::Content> {
+    on_flow_api(state.inner(), &connection_id, move |_, _, api| flowapi::content(&link, api)).await
+}
+
+/// Opens the run in the Power Automate portal (the browser has its own sign-in).
+#[tauri::command]
+async fn open_flow_run(state: State<'_, AppState>, connection_id: String, flow_id: String, run_name: String) -> AppResult<()> {
+    let url = on_env(state.inner(), &connection_id, move |host, token| {
+        flowapi::portal_url(&flowapi::environment_id(host, token)?, &flow_id, &run_name)
+    })
+    .await?;
+    webbrowser::open(&url)?;
+    Ok(())
+}
+
 /// Runs file / git work for flow tasks off the main thread.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> AppResult<T> + Send + 'static) -> AppResult<T> {
     tokio::task::spawn_blocking(f).await.map_err(AppError::msg)?
@@ -1275,6 +1369,11 @@ pub fn run() {
             flow_runs,
             flow_run_summary,
             flow_run_access,
+            flow_run_steps,
+            flow_run_step_repetitions,
+            flow_run_content,
+            flow_run_search,
+            open_flow_run,
             flow_tasks,
             flow_task_defaults,
             flow_task_location,

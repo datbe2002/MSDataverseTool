@@ -365,6 +365,17 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
     box-shadow: 0 0 0 2px color-mix(in oklab, var(--warning) 28%, transparent), var(--shadow-sm);
   }
   .hexa-flow .react-flow__node.is-dimmed { opacity: 0.32; transition: opacity 0.15s; }
+  /* Expanding / collapsing (useAnimatedLayout): new nodes fade in, gone ones fade out. */
+  .hexa-flow .react-flow__node.flow-enter { animation: flowEnter 0.26s ease-out; }
+  .hexa-flow .react-flow__node.flow-enter.is-dimmed { animation: flowEnterDim 0.26s ease-out; }
+  .hexa-flow .react-flow__node.flow-leave { animation: flowLeave 0.2s ease-in forwards; pointer-events: none; }
+  @keyframes flowEnter { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes flowEnterDim { from { opacity: 0; } to { opacity: 0.32; } }
+  @keyframes flowLeave { from { opacity: 1; } to { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .hexa-flow .react-flow__node.flow-enter, .hexa-flow .react-flow__node.flow-leave { animation: none; }
+    .hexa-flow .react-flow__node.flow-leave { opacity: 0; }
+  }
   /* Comparing two versions (Flow tasks › Visual). */
   .flow-card.is-added { border-color: var(--success); background: color-mix(in oklab, var(--success) 9%, var(--s2)); }
   .flow-card.is-removed { border-color: var(--danger); background: color-mix(in oklab, var(--danger) 9%, var(--s2)); border-style: dashed; }
@@ -386,6 +397,26 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
   .flow-legend.is-changed { border-color: var(--warning); background: color-mix(in oklab, var(--warning) 25%, transparent); }
   .flow-legend.is-moved { border-color: var(--info); background: color-mix(in oklab, var(--info) 25%, transparent); }
   .flow-card.is-selected:is(.is-added, .is-removed, .is-changed, .is-moved, .is-renamed) { border-color: var(--brand); border-style: solid; }
+  /* One run drawn on the designer (Flows › Runs › Diagram). */
+  .flow-card.is-run-failed { border-color: var(--danger); background: color-mix(in oklab, var(--danger) 9%, var(--s2)); }
+  .flow-card.is-run-succeeded { border-color: color-mix(in oklab, var(--success) 55%, var(--line)); }
+  .flow-card.is-run-running { border-color: var(--info); }
+  .flow-card.is-run-cancelled { border-color: var(--warning); }
+  .flow-card.is-selected[class*="is-run-"] { border-color: var(--brand); }
+  .flow-card-run {
+    position: absolute; top: -9px; left: 10px; height: 17px; padding: 0 6px; border-radius: 4px;
+    display: flex; align-items: center; font-size: 10.5px; font-weight: 600; line-height: 1; white-space: nowrap;
+    background: var(--s3); color: var(--muted); border: 1px solid var(--line-strong);
+  }
+  .flow-card-run.is-failed { background: var(--danger); color: var(--bg); border-color: transparent; }
+  .flow-card-run.is-succeeded { background: var(--success); color: var(--bg); border-color: transparent; }
+  .flow-card-run.is-running { background: var(--info); color: var(--bg); border-color: transparent; }
+  .flow-card-run.is-cancelled { background: var(--warning); color: var(--bg); border-color: transparent; }
+  .flow-card-run.is-inside { background: var(--s3); border-color: currentColor; }
+  .flow-card-run.is-inside.is-failed { color: var(--danger); }
+  .flow-card-run.is-inside.is-succeeded { color: var(--success); }
+  .flow-card-run.is-inside.is-running { color: var(--info); }
+  .flow-card-run.is-inside.is-cancelled { color: var(--warning); }
   .flow-card-flag {
     position: absolute; top: -7px; right: -7px; width: 16px; height: 16px; border-radius: 999px;
     display: grid; place-items: center; font-size: 10px; font-weight: 700;

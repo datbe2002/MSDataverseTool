@@ -36,6 +36,9 @@ const LIST_COLUMNS: &str = "flowrunid,name,status,starttime,endtime,duration,tri
 pub struct RunFilter {
     /// Only runs started at or after this time (RFC 3339).
     pub since: Option<String>,
+    /// Only runs started before this time (RFC 3339).
+    #[serde(default)]
+    pub until: Option<String>,
     /// One flow's runs (its `workflow` id).
     pub flow_id: Option<String>,
     /// "failed" | "succeeded" | "cancelled" | "running".
@@ -158,6 +161,9 @@ pub fn filter_expr(f: &RunFilter) -> AppResult<Option<String>> {
     let mut parts: Vec<String> = Vec::new();
     if let Some(since) = non_empty(&f.since) {
         parts.push(format!("starttime ge {}", odata_time(utc(since)?)));
+    }
+    if let Some(until) = non_empty(&f.until) {
+        parts.push(format!("starttime lt {}", odata_time(utc(until)?)));
     }
     if let Some(id) = non_empty(&f.flow_id) {
         let id = guid(id, "flow id")?;
@@ -532,6 +538,12 @@ mod tests {
              or workflowid eq 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' or workflowid eq 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE') \
              and (status eq 'Failed' or status eq 'TimedOut')"
         );
+        let window = RunFilter {
+            since: Some("2026-10-08T09:00:00+07:00".into()),
+            until: Some("2026-10-08T18:00:00+07:00".into()),
+            ..Default::default()
+        };
+        assert_eq!(filter_expr(&window).unwrap().unwrap(), "starttime ge 2026-10-08T02:00:00Z and starttime lt 2026-10-08T11:00:00Z");
     }
 
     #[test]

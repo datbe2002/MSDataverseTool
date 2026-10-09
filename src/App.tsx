@@ -19,7 +19,7 @@ import {
   SwitchConfirmModal,
 } from "./components/Modals";
 import { Onboarding, maybeFirstStart, shouldOnboard } from "./components/Onboarding";
-import { RunAccessModal } from "./components/FlowRuns";
+import { FlowApiAccessModal, RunAccessModal } from "./components/FlowRuns";
 import { matchesBinding } from "./lib/keys";
 import { ROUTES } from "./lib/navigation";
 import { startUpdateChecks } from "./lib/updater";
@@ -150,6 +150,7 @@ export function RootLayout() {
       {/* After the project modal, so it stacks on top when opened from there. */}
       <SignOutConfirmModal />
       <RunAccessModal />
+      <FlowApiAccessModal />
       {/* Last: an expired sign-in can interrupt anything, dialogs included. */}
       <ReauthModal />
       <Toasts />

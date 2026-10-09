@@ -38,6 +38,11 @@ import type {
   RunPage,
   RunSummary,
   RunReadDepth,
+  RunStep,
+  RunStepContent,
+  RunSearchHit,
+  RunSearchScope,
+  RunSteps,
   FlowList,
   LiveTaskFlow,
   NewFlowTask,
@@ -128,6 +133,20 @@ export const api = {
   flowRunSummary: (connectionId: string, since: string) => invoke<RunSummary>("flow_run_summary", { connectionId, since }),
   /** How far this account can read `flowrun` (prvReadflowrun depth). */
   flowRunAccess: (connectionId: string) => invoke<RunReadDepth>("flow_run_access", { connectionId }),
+  /** A run's trigger and actions, from the Power Automate API (`FLOW_API_DENIED:` when this account can't use it). */
+  flowRunSteps: (connectionId: string, flowId: string, runName: string) =>
+    invoke<RunSteps>("flow_run_steps", { connectionId, flowId, runName }),
+  /** Every repetition of a step inside a loop. */
+  flowRunStepRepetitions: (connectionId: string, flowId: string, runName: string, step: string) =>
+    invoke<RunStep[]>("flow_run_step_repetitions", { connectionId, flowId, runName, step }),
+  /** A step's inputs or outputs, behind the link the API gave. */
+  flowRunContent: (connectionId: string, link: string) => invoke<RunStepContent>("flow_run_content", { connectionId, link }),
+  /** Searches one run's step inputs / outputs for a value (any case). */
+  flowRunSearch: (connectionId: string, flowId: string, runName: string, needle: string, scope: RunSearchScope) =>
+    invoke<{ hits: RunSearchHit[]; skipped: number }>("flow_run_search", { connectionId, flowId, runName, needle, scope }),
+  /** Opens the run in the Power Automate portal. */
+  openFlowRun: (connectionId: string, flowId: string, runName: string) =>
+    invoke<void>("open_flow_run", { connectionId, flowId, runName }),
 
   /** Every flow task folder the user created or opened, last opened first. */
   flowTasks: () => invoke<TaskSummary[]>("flow_tasks"),

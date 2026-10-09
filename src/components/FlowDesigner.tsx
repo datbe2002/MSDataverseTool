@@ -22,12 +22,16 @@ import "@xyflow/react/dist/style.css";
 import { CARD_H, CARD_W, containerIds, layoutFlow, type GraphNode } from "../lib/flowGraph";
 import { inlineOwners, withChildFlows, type ChildFlow, type OutlineNode } from "../lib/flowOutline";
 import { indexFlow, type FlowIndex } from "../lib/flowRefs";
+import { useAnimatedLayout } from "../lib/useAnimatedLayout";
 import { queryTerms, searchSteps } from "../lib/flowSearch";
 import { StepSearchBox } from "./StepSearch";
 import { StepIcon } from "./StepIcon";
 import { FlowStepPanel, type PanelTab } from "./FlowStepPanel";
 import { ArrowUpRight, ChevronDown, Maximize, Minimize } from "./Icon";
 import type { DiffMark } from "../lib/flowTasks";
+import { stepDuration, stepTone, type StepTone } from "../lib/flowRuns";
+import { formatDuration } from "../lib/pagedStore";
+import type { RunStep } from "../types";
 
 interface Props {
   /** Connection the flow is in (choice labels are read from its tables). */
@@ -49,6 +53,11 @@ interface Props {
    * panel and child flow buttons are left out; picking a step only selects it.
    */
   marks?: Map<string, DiffMark[]>;
+  /**
+   * Showing one run: each step's result (by step id); `panel` replaces the
+   * step panel. Child flow buttons are left out.
+   */
+  run?: { steps: Map<string, RunStep>; panel: (step: OutlineNode) => React.ReactNode };
 }
 
 interface NodeData extends Record<string, unknown> {
@@ -65,11 +74,40 @@ interface NodeData extends Record<string, unknown> {
   marksInside?: boolean;
   /** Child flow buttons (not when comparing). */
   links: boolean;
+  /** Run mode: how this step ended (null = it has no result in the run). */
+  run?: RunStep | null;
+  /** Run mode, a collapsed container: the worst result inside. */
+  runInside?: StepTone | null;
 }
 
 type FlowNode = Node<NodeData>;
 
 const SEP = "\u0001";
+
+/** Worst first: what a collapsed container shows of the steps inside it. */
+const TONE_ORDER: StepTone[] = ["failed", "running", "cancelled", "succeeded", "skipped", "other"];
+
+const TONE_COLOR: Record<StepTone, string> = {
+  failed: "var(--danger)",
+  succeeded: "var(--success)",
+  skipped: "var(--line-strong)",
+  running: "var(--info)",
+  cancelled: "var(--warning)",
+  other: "var(--line-strong)",
+};
+
+/** The run badge of a card: "Failed · 6.0 s", "×3". */
+function runLabel(step: RunStep): string {
+  const tone = stepTone(step.status);
+  const d = stepDuration(step);
+  return [
+    step.status || "—",
+    tone !== "skipped" && d !== null ? formatDuration(d) : null,
+    step.repetitionCount ? `×${step.repetitionCount}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 const MARK_LABEL: Record<DiffMark, string> = {
   added: "Added",
@@ -105,11 +143,18 @@ function panelOver(box: HTMLElement): number {
 /** The card of one step (also a collapsed container). */
 function CardBody({ data, children }: { data: NodeData; children?: React.ReactNode }) {
   const step = data.g.step!;
+  const tone = data.run ? stepTone(data.run.status) : null;
   return (
     <div
-      className={`flow-card ${data.selected ? "is-selected" : ""} ${data.match ? "is-match" : ""} ${data.marks?.length ? `is-${data.marks[0]}` : ""}`}
+      className={`flow-card ${data.selected ? "is-selected" : ""} ${data.match ? "is-match" : ""} ${data.marks?.length ? `is-${data.marks[0]}` : ""} ${tone ? `is-run-${tone}` : ""}`}
       style={{ width: CARD_W, height: CARD_H }}
     >
+      {data.run && <span className={`flow-card-run is-${tone}`}>{runLabel(data.run)}</span>}
+      {data.run === null && data.runInside && (
+        <span className={`flow-card-run is-inside is-${data.runInside}`} title="The worst result of the steps inside">
+          {data.runInside === "failed" ? "failed inside" : `${data.runInside} inside`}
+        </span>
+      )}
       {!!data.marks?.length && <span className={`flow-card-diff is-${data.marks[0]}`}>{data.marks.map((m) => MARK_LABEL[m]).join(" · ")}</span>}
       {!data.marks?.length && data.marksInside && (
         <span className="flow-card-diff is-inside" title="Something inside changed">
@@ -251,7 +296,7 @@ export function FlowDesigner(props: Props) {
   );
 }
 
-function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName, onOpenFlow, childFlow, onShowInJson, theme, marks }: Props) {
+function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName, onOpenFlow, childFlow, onShowInJson, theme, marks, run }: Props) {
   const rf = useReactFlow();
   const boxRef = useRef<HTMLDivElement>(null);
   // Covers the app window (the webview refuses the Fullscreen API). Esc leaves it once no step is selected.
@@ -270,8 +315,9 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
   const [fitRequest, setFitRequest] = useState(0);
   useEffect(() => {
     if (!fitRequest) return;
-    const frame = requestAnimationFrame(fit);
-    return () => cancelAnimationFrame(frame);
+    // After the cards have glided to their new places.
+    const t = setTimeout(fit, 280);
+    return () => clearTimeout(t);
   }, [fitRequest, fit]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   // "Run a Child Flow" steps showing their child flow inside them.
@@ -281,6 +327,8 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
     [own, inlined, childFlow, flowId]
   );
   const graph = useMemo(() => layoutFlow(outline, collapsed), [outline, collapsed]);
+  // Expanding / collapsing glides the cards to their new places.
+  const anim = useAnimatedLayout(graph.nodes);
   // References resolve within one flow: this one, or the child flow a step belongs to.
   const indexes = useMemo(() => {
     const map = new Map<string, FlowIndex>([["", indexFlow(own)]]);
@@ -346,25 +394,40 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
     [stepsById]
   );
 
-  const nodes: FlowNode[] = useMemo(
-    () =>
-      graph.nodes.map((g) => {
+  const nodes: FlowNode[] = useMemo(() => {
+    const drawn = graph.nodes.map((layout): [GraphNode, string | undefined] => {
+      const box = anim.boxes?.get(layout.id);
+      return [box ? { ...layout, ...box } : layout, anim.entering.has(layout.id) ? "flow-enter" : undefined];
+    });
+    // Nodes that just went away fade out where they were, under the others.
+    for (const gone of anim.leaving) drawn.push([gone, "flow-leave"]);
+    return drawn.map(([g, motion]) => {
         // Cards (incl. collapsed containers) and frame headers get marked;
         // only cards fade, so frames keep the shape of the flow readable.
         const match =
           searching && (g.kind === "card" ? matchIds.has(g.id) : g.kind === "frame" && exactIds.has(g.id));
+        const result = run && g.step ? run.steps.get(g.id) ?? null : undefined;
+        // A collapsed container without a result of its own shows the worst one inside.
+        let inside: StepTone | null = null;
+        if (run && g.hidden !== undefined) {
+          const tones = [...run.steps].filter(([id]) => id.startsWith(g.id + SEP)).map(([, s]) => stepTone(s.status));
+          inside = TONE_ORDER.find((t) => tones.includes(t)) ?? null;
+        }
+        // Steps that didn't run in this run fade, like search misses.
+        const didntRun = run && g.kind === "card" && (result === null ? !inside || inside === "skipped" : stepTone(result!.status) === "skipped");
+        const dim = (searching && g.kind === "card" && !match) || didntRun ? "is-dimmed" : undefined;
         return {
-          id: g.id,
+          id: motion === "flow-leave" ? `${g.id}${SEP}leaving` : g.id,
           type: g.kind,
-          className: searching && g.kind === "card" && !match ? "is-dimmed" : undefined,
+          className: [dim, motion].filter(Boolean).join(" ") || undefined,
           position: { x: g.x, y: g.y },
           width: g.w,
           height: g.h,
           draggable: false,
           selectable: false,
           focusable: false,
-          // Frames behind edges, cards above them.
-          zIndex: g.kind === "frame" ? g.depth : 1000,
+          // Frames behind edges, cards above them; leaving nodes under everything.
+          zIndex: motion === "flow-leave" ? 0 : g.kind === "frame" ? g.depth : 1000,
           data: {
             g,
             selected: g.id === selectedId,
@@ -374,12 +437,13 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
             onOpenFlow,
             marks: marks?.get(g.id),
             marksInside: !!marks && g.hidden !== undefined && [...marks.keys()].some((id) => id.startsWith(g.id + SEP)),
-            links: !marks,
+            links: !marks && !run,
+            run: result,
+            runInside: inside,
           },
         };
-      }),
-    [graph, selectedId, flowName, toggle, onOpenFlow, searching, matchIds, exactIds, marks]
-  );
+      });
+  }, [graph, anim, selectedId, flowName, toggle, onOpenFlow, searching, matchIds, exactIds, marks, run]);
 
   const edges: Edge[] = useMemo(
     () =>
@@ -556,6 +620,8 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
             nodeColor={(n) => {
               const d = (n as FlowNode).data;
               if (d.g.kind === "frame") return "transparent";
+              if (d.run) return TONE_COLOR[stepTone(d.run.status)];
+              if (d.runInside) return TONE_COLOR[d.runInside];
               return d.marks?.length ? MARK_COLOR[d.marks[0]] : "var(--line-strong)";
             }}
             nodeStrokeColor={(n) => ((n as FlowNode).data.g.kind === "frame" ? "var(--line-strong)" : "transparent")}
@@ -566,7 +632,8 @@ function Designer({ connId, flowId, outline: own, selectedId, onSelect, flowName
           Scroll to move · Ctrl + scroll to zoom
         </div>
       </div>
-      {selected && selected.kind !== "branch" && !marks && (
+      {selected && selected.kind !== "branch" && run && run.panel(selected)}
+      {selected && selected.kind !== "branch" && !marks && !run && (
         <FlowStepPanel
           key={selected.id}
           connId={connId}

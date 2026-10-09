@@ -753,8 +753,8 @@ function FlowDetail({ connId, flow, flows }: { connId: string; flow: FlowMeta; f
             </div>
           )}
 
-          {/* A short window needs the room for the designer, which shows all of this too. */}
-          <div className="card mt-5 grid grid-cols-3 divide-x divide-line short:hidden">
+          {/* A short window needs the room for the designer, which shows all of this too; Runs needs it for the steps. */}
+          <div className={`card mt-5 grid grid-cols-3 divide-x divide-line short:hidden ${tab === "runs" ? "hidden" : ""}`}>
             <Stat label="Trigger">
               {pending ? (
                 <div className="skeleton mt-1 h-3 w-32" />

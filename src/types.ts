@@ -309,6 +309,8 @@ export type RunOutcome = "failed" | "succeeded" | "cancelled" | "running" | "oth
 /** Server-side filters of the flow run list (`flow_runs`). */
 export interface RunFilter {
   since?: string | null;
+  /** Only runs started before this time. */
+  until?: string | null;
   /** One flow's runs (its `workflow` id). */
   flowId?: string | null;
   status?: Exclude<RunOutcome, "other"> | null;
@@ -358,6 +360,57 @@ export interface FlowRunStats {
 }
 
 /** Runs and failures of every flow since a time (`flow_run_summary`). */
+/** A trigger, an action, or one repetition of an action in a loop (Power Automate API). */
+export interface RunStep {
+  /** The step's name in the definition (`Get_items`); a repetition's own name for repetitions. */
+  name: string;
+  status: string;
+  code: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  /** Signed links to the inputs / outputs (`flowRunContent`). */
+  inputsLink: string | null;
+  inputsSize: number | null;
+  outputsLink: string | null;
+  outputsSize: number | null;
+  /** How many times it ran, for a step inside a loop. */
+  repetitionCount: number | null;
+  /** Which loop items a repetition ran for, outermost first. */
+  repetition: { scopeName: string; itemIndex: number }[];
+}
+
+export interface RunSteps {
+  trigger: RunStep | null;
+  actions: RunStep[];
+  /** Too many actions: the rest weren't read. */
+  truncated: boolean;
+}
+
+/** Which steps a run search reads: `steps` null = every step. */
+export interface RunSearchScope {
+  steps: string[] | null;
+  /** With `steps`: the trigger's outputs too. */
+  trigger: boolean;
+}
+
+/** Where a searched value was found in a run. */
+export interface RunSearchHit {
+  /** The step's name in the definition. */
+  step: string;
+  part: "inputs" | "outputs";
+  repetition: { scopeName: string; itemIndex: number }[];
+  /** The text around the match, on one line. */
+  snippet: string;
+}
+
+/** A step's inputs or outputs. */
+export interface RunStepContent {
+  text: string;
+  truncated: boolean;
+}
+
 /** prvReadflowrun depth; "basic" sees only runs of flows the account owns. */
 export type RunReadDepth = "none" | "basic" | "local" | "deep" | "global";
 
