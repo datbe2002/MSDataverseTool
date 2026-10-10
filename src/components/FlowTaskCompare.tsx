@@ -17,6 +17,7 @@ import { FlowDesigner } from "./FlowDesigner";
 import { FlowStepPanel, type PanelTab } from "./FlowStepPanel";
 import { AlertTriangle, Check, Info, Loader, Refresh, X } from "./Icon";
 import type { FlowMeta, LiveTaskFlow, TaskFlow, TaskFlowFile, TaskVersion } from "../types";
+import { SelectFace } from "./FormParts";
 
 const IGNORE_KEY = "cds.flowtasks.ignoreMetadata";
 const VIEW_KEY = "cds.flowtasks.view";
@@ -260,6 +261,7 @@ export function FlowTaskCompare({
       {/* What's compared */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-s1 px-4 py-2">
         <select className="input !h-8 !w-auto max-w-[280px] !px-2 !text-[12.5px]" value={left} onChange={(e) => onPick(e.target.value, right)} aria-label="Left side">
+          <SelectFace />
           {options(left, "left").map(([v, label]) => (
             <option key={v} value={v}>
               {label}
@@ -270,6 +272,7 @@ export function FlowTaskCompare({
           ↔
         </span>
         <select className="input !h-8 !w-auto max-w-[280px] !px-2 !text-[12.5px]" value={right} onChange={(e) => onPick(left, e.target.value)} aria-label="Right side">
+          <SelectFace />
           {options(right, "right").map(([v, label]) => (
             <option key={v} value={v}>
               {label}

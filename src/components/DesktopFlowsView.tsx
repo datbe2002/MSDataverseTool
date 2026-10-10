@@ -24,6 +24,7 @@ import { FilterChip, IdList, ListSkeleton, LogText, Stat } from "./LogParts";
 import { FlowsTab, MachinesTab, RunItem } from "./DesktopFlowsCatalog";
 import { Search, Refresh, Copy, AlertTriangle, Loader, ChevronDown, Monitor } from "./Icon";
 import type { DesktopRun, DesktopRunDetail } from "../types";
+import { SelectFace } from "./FormParts";
 
 const DEBOUNCE_MS = 400;
 
@@ -135,6 +136,7 @@ function RunsTab({ connId, selected }: { connId: string; selected: string | null
             onChange={(e) => set({ flowId: e.target.value })}
             aria-label="Desktop flow"
           >
+            <SelectFace />
             <option value="">Every desktop flow</option>
             {filters.flowId && !flowOptions.some((f) => f.id === filters.flowId) && <option value={filters.flowId}>(this flow)</option>}
             {flowOptions.map((f) => (
@@ -156,6 +158,7 @@ function RunsTab({ connId, selected }: { connId: string; selected: string | null
 
         <div className="grid grid-cols-2 gap-2 px-3 pt-2">
           <select className="input !h-8 !px-2 !text-[12.5px]" value={filters.range} onChange={(e) => set({ range: e.target.value as TimeRange })} aria-label="Time range">
+            <SelectFace />
             {RANGES.map((r) => (
               <option key={r.key} value={r.key}>
                 {r.label}
@@ -168,6 +171,7 @@ function RunsTab({ connId, selected }: { connId: string; selected: string | null
             onChange={(e) => set({ status: e.target.value as DesktopRunFilters["status"] })}
             aria-label="Status"
           >
+            <SelectFace />
             {RUN_STATUSES.map((s) => (
               <option key={s.key} value={s.key}>
                 {s.label}
@@ -175,6 +179,7 @@ function RunsTab({ connId, selected }: { connId: string; selected: string | null
             ))}
           </select>
           <select className="input col-span-2 !h-8 !px-2 !text-[12.5px]" value={filters.target} onChange={(e) => set({ target: e.target.value })} aria-label="Machine or machine group">
+            <SelectFace />
             <option value="">Any machine</option>
             {filters.target && !targetName(filters.target) && <option value={filters.target}>(this {filters.target.startsWith("g:") ? "group" : "machine"})</option>}
             {groups.length > 0 && (
@@ -207,6 +212,7 @@ function RunsTab({ connId, selected }: { connId: string; selected: string | null
         {moreOpen && (
           <div className="grid grid-cols-[130px_minmax(0,1fr)] gap-2 px-3">
             <select className="input !h-8 !px-2 !text-[12.5px]" value={filters.runMode} onChange={(e) => set({ runMode: e.target.value })} aria-label="Run mode">
+              <SelectFace />
               {RUN_MODES.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}

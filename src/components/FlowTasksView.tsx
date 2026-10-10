@@ -18,6 +18,7 @@ import { AddFlowsDialog, EditTaskDialog, NewTaskDialog } from "./FlowTaskDialogs
 import { FlowTaskCompare } from "./FlowTaskCompare";
 import { AlertTriangle, ArrowLeft, ArrowUpRight, Check, Copy, Folder, Loader, More, Plus, Refresh, Upload } from "./Icon";
 import type { Connection, FlowMeta, TaskSummary, TaskVersion, TaskView } from "../types";
+import { SelectFace } from "./FormParts";
 
 const time = (iso: string | null | undefined) => (iso ? relativeTime(Date.parse(iso)) : "—");
 
@@ -896,6 +897,7 @@ function DeployDialog({
           <label className="block space-y-1">
             <span className="block text-xs font-medium text-muted">Version</span>
             <select className="input" value={version} onChange={(e) => setVersion(e.target.value)} disabled={!versions?.length}>
+              <SelectFace />
               {versions === null && <option>Loading…</option>}
               {versions?.length === 0 && <option>No earlier versions</option>}
               {versions?.map((v) => (

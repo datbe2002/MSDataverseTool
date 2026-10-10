@@ -18,6 +18,7 @@ import { relativeTime } from "../lib/history";
 import { EDITOR_THEME } from "../lib/monacoTheme";
 import { Search, Refresh, Copy, Flow, AlertTriangle, ArrowLeft, ArrowUpRight, Loader, ChevronDown } from "./Icon";
 import type { FlowMeta } from "../types";
+import { SelectFace } from "./FormParts";
 
 type StateFilter = "all" | "on" | "off" | "suspended";
 
@@ -197,6 +198,7 @@ export function FlowsView() {
             aria-label="Filter by owner"
             disabled={!flows}
           >
+            <SelectFace />
             <option value="">Any owner</option>
             {owners.map((o) => (
               <option key={o} value={o}>
@@ -212,6 +214,7 @@ export function FlowsView() {
             disabled={!flows || !!list?.solutionsError}
             title={list?.solutionsError ? "Solutions can't be read with this account" : undefined}
           >
+            <SelectFace />
             <option value="">{list?.solutionsError ? "Solutions unavailable" : "Any solution"}</option>
             {solutions.length > 0 && <option value={NO_SOLUTION}>Not in a solution</option>}
             {solutions.map((s) => (

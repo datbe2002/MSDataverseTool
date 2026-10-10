@@ -21,6 +21,7 @@ import { ErrorState, Grid, Skeleton } from "./ResultsTable";
 import { Modal } from "./Modals";
 import { AlertTriangle, ChevronDown, Clock, Copy, Download, Loader, Pencil, Plus, Send, X } from "./Icon";
 import type { QueryResult } from "../types";
+import { SelectFace } from "./FormParts";
 
 const FORM_KEY = "cds.rest.formWidth";
 const TARGET_KEY = "cds.rest.codeTarget";
@@ -192,6 +193,7 @@ export function RestView() {
           <Send size={14} className="text-brand" /> Request
         </span>
         <select className="input h-7 w-auto py-0 text-[12.5px]" value={req.kind} onChange={(e) => changeKind(e.target.value as RestKind)} aria-label="Request type" title={kindInfo(req.kind).hint}>
+          <SelectFace />
           <optgroup label="Read — runs here">
             {KINDS.filter((k) => !k.write).map((k) => (
               <option key={k.kind} value={k.kind}>

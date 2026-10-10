@@ -72,6 +72,7 @@ import {
   X,
 } from "./Icon";
 import type { FlowMeta, RunReadDepth, RunRow, RunSearchScope, RunStep } from "../types";
+import { SelectFace } from "./FormParts";
 
 /** A run in a list: status dot, time, duration, the error's first line. */
 export function RunItem({
@@ -866,6 +867,7 @@ function Repetitions({ connId, flowId, runName, step }: { connId: string; flowId
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <select className="input !h-7 max-w-full !px-2 !text-[12px]" value={current.name} onChange={(e) => setPicked(e.target.value)} aria-label="Repetition">
+          <SelectFace />
           {list.map((r) => (
             <option key={r.name} value={r.name}>
               {label(r)} · {r.status}
@@ -1020,8 +1022,17 @@ function readJsonMode(): JsonMode {
   }
 }
 
-/** Runs per hour / day as stacked columns: failures (red) under the other runs. */
-export function RunChart({ bars, unit }: { bars: Bar[]; unit: "hour" | "day" }) {
+/** The smallest "round" ceiling for a fail-rate axis: 5, 10, 25, 50 or 100%. */
+function rateCeiling(max: number): number {
+  return [0.05, 0.1, 0.25, 0.5, 1].find((c) => max <= c) ?? 1;
+}
+
+/**
+ * Runs per slot as stacked columns (failed at the base). With `rate`, a second
+ * plot under it: the share of runs that failed per slot, on its own axis (a
+ * slot without runs leaves a gap). One hover, one tooltip for both.
+ */
+export function RunChart({ bars, unit, rate = false }: { bars: Bar[]; unit: "hour" | "day"; rate?: boolean }) {
   const max = Math.max(1, ...bars.map((b) => b.total));
   const [hover, setHover] = useState<number | null>(null);
   const label = (t: number) =>
@@ -1029,6 +1040,17 @@ export function RunChart({ bars, unit }: { bars: Bar[]; unit: "hour" | "day" }) 
       ? new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       : new Date(t).toLocaleDateString([], { month: "short", day: "numeric" });
   const tip = hover !== null ? bars[hover] : null;
+  const rates = bars.map((b) => (b.total ? b.failed / b.total : null));
+  const ceiling = rateCeiling(Math.max(0, ...rates.map((r) => r ?? 0)));
+  const fade = (i: number) => (hover === i ? "opacity-100" : hover !== null ? "opacity-60" : "");
+  const columns = (render: (b: Bar, i: number) => React.ReactNode) =>
+    bars.map((b, i) => (
+      // The whole column is the hover target, not just the mark.
+      <div key={b.at} className="relative flex h-full min-w-0 flex-1 flex-col justify-end" onMouseEnter={() => setHover(i)}>
+        {render(b, i)}
+      </div>
+    ));
+
   return (
     <div>
       <div className="mb-2 flex items-center gap-4 text-xs text-muted" aria-hidden="true">
@@ -1040,31 +1062,33 @@ export function RunChart({ bars, unit }: { bars: Bar[]; unit: "hour" | "day" }) 
         </span>
         <span className="ml-auto tabular-nums text-subtle">peak {max.toLocaleString()} / {unit}</span>
       </div>
-      <div className="relative">
+      <div className="relative" onMouseLeave={() => setHover(null)}>
         <div
           className="flex h-[120px] items-end gap-[2px] border-b border-line"
           role="img"
           aria-label={`Runs per ${unit}: ${bars.reduce((a, b) => a + b.total, 0)} runs, ${bars.reduce((a, b) => a + b.failed, 0)} failed`}
-          onMouseLeave={() => setHover(null)}
         >
-          {bars.map((b, i) => {
+          {columns((b, i) => {
             const ok = b.total - b.failed;
             return (
-              // The whole column is the hover target, not just the mark.
-              <div key={b.at} className="flex h-full min-w-0 flex-1 flex-col justify-end" onMouseEnter={() => setHover(i)}>
-                <div
-                  className={`flex w-full flex-col justify-end gap-[2px] ${hover === i ? "opacity-100" : hover !== null ? "opacity-60" : ""}`}
-                  style={{ height: `${(b.total / max) * 100}%` }}
-                >
-                  {ok > 0 && <div className="w-full rounded-t-[4px] bg-line-strong" style={{ flexGrow: ok, minHeight: 2 }} />}
-                  {b.failed > 0 && (
-                    <div className={`w-full bg-danger ${ok > 0 ? "" : "rounded-t-[4px]"}`} style={{ flexGrow: b.failed, minHeight: 2 }} />
-                  )}
-                </div>
+              <div className={`flex w-full flex-col justify-end gap-[2px] ${fade(i)}`} style={{ height: `${(b.total / max) * 100}%` }}>
+                {ok > 0 && <div className="w-full rounded-t-[4px] bg-line-strong" style={{ flexGrow: ok, minHeight: 2 }} />}
+                {b.failed > 0 && (
+                  <div className={`w-full bg-danger ${ok > 0 ? "" : "rounded-t-[4px]"}`} style={{ flexGrow: b.failed, minHeight: 2 }} />
+                )}
               </div>
             );
           })}
         </div>
+        {rate && (
+          <>
+            <div className="mb-1.5 mt-4 flex items-center text-xs text-muted" aria-hidden="true">
+              <span>Fail rate</span>
+              <span className="ml-auto tabular-nums text-subtle">0 – {Math.round(ceiling * 100)}%</span>
+            </div>
+            <RateLine rates={rates} ceiling={ceiling} hover={hover} unit={unit} columns={columns} />
+          </>
+        )}
         {tip && hover !== null && (
           <div
             className="popover pointer-events-none absolute bottom-[calc(100%+6px)] z-10 whitespace-nowrap px-2.5 py-1.5 text-xs"
@@ -1078,6 +1102,7 @@ export function RunChart({ bars, unit }: { bars: Bar[]; unit: "hour" | "day" }) 
             <div className="tabular-nums text-muted">
               {tip.total.toLocaleString()} run{tip.total === 1 ? "" : "s"}
               {tip.failed > 0 && <span className="text-danger"> · {tip.failed.toLocaleString()} failed</span>}
+              {rate && tip.total > 0 && <span> · {failRate(tip.failed, tip.total)} fail rate</span>}
             </div>
           </div>
         )}
@@ -1089,6 +1114,71 @@ export function RunChart({ bars, unit }: { bars: Bar[]; unit: "hour" | "day" }) 
           <span>{label(bars[bars.length - 1].at)}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The fail-rate plot: a 2px line through the slot centres (same columns as the bars above). */
+function RateLine({
+  rates,
+  ceiling,
+  hover,
+  unit,
+  columns,
+}: {
+  rates: (number | null)[];
+  ceiling: number;
+  hover: number | null;
+  unit: "hour" | "day";
+  columns: (render: (b: Bar, i: number) => React.ReactNode) => React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setWidth(el.clientWidth));
+    observer.observe(el);
+    setWidth(el.clientWidth);
+    return () => observer.disconnect();
+  }, []);
+  const H = 64;
+  const n = rates.length;
+  // Column centres exactly as the flex row lays them out (2px gaps).
+  const col = n ? (width - (n - 1) * 2) / n : 0;
+  const x = (i: number) => i * (col + 2) + col / 2;
+  const y = (r: number) => H - (r / ceiling) * (H - 4) - 2;
+  // Runs of consecutive slots that had runs; a slot without runs breaks the line.
+  const path = rates
+    .map((r, i) => (r === null ? null : `${i > 0 && rates[i - 1] !== null ? "L" : "M"}${x(i).toFixed(1)},${y(r).toFixed(1)}`))
+    .filter(Boolean)
+    .join(" ");
+  const alone = rates.map((r, i) => r !== null && rates[i - 1] == null && rates[i + 1] == null);
+  const shown = rates.filter((r) => r !== null) as number[];
+  return (
+    <div className="relative" style={{ height: H }}>
+      <div className="absolute inset-x-0 top-0 border-t border-line/60" aria-hidden="true" />
+      <div className="absolute inset-x-0 bottom-0 border-b border-line" aria-hidden="true" />
+      {width > 0 && (
+        <svg
+          className="pointer-events-none absolute inset-0 overflow-visible"
+          width={width}
+          height={H}
+          role="img"
+          aria-label={`Fail rate per ${unit}${shown.length ? `: from ${Math.round(Math.min(...shown) * 100)}% to ${Math.round(Math.max(...shown) * 100)}%` : ""}`}
+        >
+          <path d={path} fill="none" stroke="var(--danger)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          {rates.map((r, i) =>
+            r !== null && (alone[i] || hover === i) ? (
+              <circle key={i} cx={x(i)} cy={y(r)} r={hover === i ? 4 : 2.5} className="fill-danger stroke-s1 dark:stroke-s2" strokeWidth={2} />
+            ) : null
+          )}
+          {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={H} stroke="var(--line-strong)" strokeWidth={1} />}
+        </svg>
+      )}
+      <div ref={ref} className="absolute inset-0 flex gap-[2px]">
+        {columns(() => null)}
+      </div>
     </div>
   );
 }
@@ -1197,6 +1287,7 @@ export function FlowRunsTab({
             aria-label="Time range"
             title="Runs started in this window"
           >
+            <SelectFace />
             {RUN_RANGES.map((r) => (
               <option key={r.key} value={r.key}>
                 {r.label}
@@ -1452,6 +1543,7 @@ function RunSearchBar({
             aria-label="Step to look in"
             title="Looking in one step is much quicker than in every step"
           >
+            <SelectFace />
             <option value="">Every step (slow)</option>
             {options.map((o) => (
               <option key={o.key} value={o.key}>
@@ -1468,6 +1560,7 @@ function RunSearchBar({
             aria-label="Runs started"
             title="A narrower window is quicker to search"
           >
+            <SelectFace />
             {RUN_RANGES.map((r) => (
               <option key={r.key} value={r.key}>
                 {r.label}

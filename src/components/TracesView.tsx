@@ -19,6 +19,7 @@ import { useDebounced } from "../lib/useDebounced";
 import { FilterChip, IdList, ListSkeleton, LogText, Stat } from "./LogParts";
 import { Search, Refresh, Copy, Bug, AlertTriangle, Loader, Info, ChevronDown, Activity, Plug } from "./Icon";
 import type { TraceDetail, TraceRow } from "../types";
+import { SelectFace } from "./FormParts";
 
 /** Typing in a filter box waits this long before asking the server. */
 const DEBOUNCE_MS = 400;
@@ -130,6 +131,7 @@ export function TracesView() {
             onChange={(e) => set({ range: e.target.value as TraceRange })}
             aria-label="Time range"
           >
+            <SelectFace />
             {RANGES.map((r) => (
               <option key={r.key} value={r.key}>
                 {r.label}
@@ -142,6 +144,7 @@ export function TracesView() {
             onChange={(e) => set({ mode: e.target.value as TraceFilters["mode"] })}
             aria-label="Execution mode"
           >
+            <SelectFace />
             <option value="">Sync and async</option>
             <option value="0">Synchronous</option>
             <option value="1">Asynchronous</option>

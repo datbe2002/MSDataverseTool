@@ -43,6 +43,7 @@ import { Stat } from "./LogParts";
 import { AlertTriangle, ArrowUpRight, ChevronDown, Copy, Folder, Globe, Loader, More, Pencil, Plus, Refresh, Save, Search, Upload } from "./Icon";
 import { ConfirmWrite, ConflictDialog, DeleteDialog, Menu, NewWebResourceDialog, ReviewChanges, syncDiffModels, useTarget } from "./WebResourceDialogs";
 import type { DependencyItem, WebResource, WebResourceDetail } from "../types";
+import { SelectFace } from "./FormParts";
 
 const HIDE_MS_KEY = "cds.webresources.hideMicrosoft";
 /** Search results shown at once; the rest are counted. */
@@ -270,6 +271,7 @@ export function WebResourcesView() {
             aria-label="Solution"
             title={data?.solutionsError ?? "Only web resources in this solution"}
           >
+            <SelectFace />
             <option value="">{data?.solutionsError ? "Solutions unavailable" : "Any solution"}</option>
             {data?.solutions
               .filter((s) => !filters.hideMicrosoft || !s.microsoft)

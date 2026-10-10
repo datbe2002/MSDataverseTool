@@ -15,6 +15,7 @@ import {
   runReadDepth,
   runSummaries,
   seesAllRuns,
+  slotUnit,
   useMonitorRange,
   useMonitorRuns,
   type RunRange,
@@ -23,8 +24,17 @@ import { logTime } from "../lib/pagedStore";
 import { relativeTime } from "../lib/history";
 import { flowRoute } from "../lib/navigation";
 import { RUN_SCOPE, RunChart, RunFamily, RunItem } from "./FlowRuns";
+import { ErrorsTab, Quiet, RowsSkeleton, TopErrorsCard } from "./FlowRunErrors";
 import { Activity, AlertTriangle, ArrowUpRight, Copy, Loader, Refresh, Search, X } from "./Icon";
-import type { FlowRunStats, RunRow } from "../types";
+import type { FlowRunStats, RunRow, RunSummary } from "../types";
+
+type View = "overview" | "errors" | "flows";
+
+const VIEWS: { key: View; label: string; title: string }[] = [
+  { key: "overview", label: "Overview", title: "Flow runs" },
+  { key: "errors", label: "Errors", title: "Errors" },
+  { key: "flows", label: "Flows", title: "Flows and runs" },
+];
 
 /** Flow runs (Monitoring): how many runs failed in a window, which flows, and why. */
 export function FlowRunsView() {
@@ -37,6 +47,9 @@ export function FlowRunsView() {
   const loadFlows = useFlows((s) => s.loadFlows);
   const [params, setParams] = useSearchParams();
   const pickedFlow = params.get("flow")?.toLowerCase() ?? null;
+  // ?view=…; an old link with only ?flow= opens the Flows tab.
+  const asked = params.get("view") as View | null;
+  const view: View = asked && VIEWS.some((v) => v.key === asked) ? asked : pickedFlow ? "flows" : "overview";
 
   useEffect(() => {
     if (activeId) loadFlows(activeId);
@@ -66,10 +79,18 @@ export function FlowRunsView() {
     );
   }
 
-  const pickFlow = (id: string | null) => {
+  /** Another tab, flow or error code; what isn't given is kept (null drops it). */
+  const go = (to: { view: View; flow?: string | null; code?: string | null }) => {
     const next = new URLSearchParams(params);
-    if (id) next.set("flow", id);
-    else next.delete("flow");
+    next.set("view", to.view);
+    if (to.flow !== undefined) {
+      if (to.flow === null) next.delete("flow");
+      else next.set("flow", to.flow);
+    }
+    if (to.code !== undefined) {
+      if (to.code === null) next.delete("code");
+      else next.set("code", to.code);
+    }
     next.delete("run");
     setParams(next, { replace: true });
   };
@@ -79,21 +100,30 @@ export function FlowRunsView() {
     {
       label: "Runs",
       value: s ? s.total.toLocaleString() : null,
-      sub: s ? `in the ${rangeLabel(range).toLowerCase()}` : "",
+      sub: s
+        ? [
+            `${s.succeeded.toLocaleString()} succeeded`,
+            s.cancelled ? `${s.cancelled.toLocaleString()} cancelled` : null,
+            s.running ? `${s.running.toLocaleString()} running` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "",
       tone: "text-subtle",
     },
     {
       label: "Failed",
       value: s ? s.failed.toLocaleString() : null,
-      sub: s ? (s.failed ? `${failRate(s.failed, s.total)} of runs` : "no failures") : "",
+      sub: s ? (s.failed ? `${s.errors.length.toLocaleString()} error code${s.errors.length === 1 ? "" : "s"}` : "no failures") : "",
       tone: s?.failed ? "text-danger" : "text-success",
       valueTone: s?.failed ? "text-danger" : "",
     },
     {
-      label: "Succeeded",
-      value: s ? s.succeeded.toLocaleString() : null,
-      sub: s ? [s.cancelled ? `${s.cancelled.toLocaleString()} cancelled` : null, s.running ? `${s.running.toLocaleString()} running` : null].filter(Boolean).join(" · ") || "nothing cancelled or running" : "",
+      label: "Fail rate",
+      value: s ? (s.total ? failRate(s.failed, s.total) : "—") : null,
+      sub: s ? `of runs in the ${rangeLabel(range).toLowerCase()}` : "",
       tone: "text-subtle",
+      valueTone: s?.failed ? "text-danger" : "",
     },
     {
       label: "Flows with failures",
@@ -104,127 +134,225 @@ export function FlowRunsView() {
   ];
 
   return (
-    <section className="h-full overflow-y-auto px-8 py-7">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="page-title">Flow runs</h1>
-            <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted">
-              <span className="truncate">
-                {connection?.name ?? "This environment"} · cloud flows in a solution
-                {kept && ` · Dataverse keeps ${kept}`}
-              </span>
-              {summary.loading ? (
-                <span className="flex shrink-0 items-center gap-1.5 text-subtle" role="status">
-                  · <Loader size={12} className="text-brand" /> Counting runs…
-                </span>
-              ) : s ? (
-                <span className="shrink-0 text-subtle" title={new Date(s.until).toLocaleString()}>
-                  · as of {logTime(s.until)}
-                </span>
-              ) : null}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="seg" role="group" aria-label="Time range">
-              {RUN_RANGES.map((r) => (
-                <button key={r.key} aria-pressed={range === r.key} onClick={() => setRange(r.key)} title={r.label}>
-                  {r.short}
-                </button>
-              ))}
-            </div>
-            <button className="btn btn-secondary" onClick={summary.reload} disabled={summary.loading} title="Count the runs again, up to now">
-              <Refresh size={14} className={summary.loading ? "animate-spin" : ""} /> Refresh
-            </button>
-          </div>
-        </div>
-
-        {depth && !seesAllRuns(depth) && depth !== "none" && (
-          <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
-            This account can see {RUN_SCOPE[depth]} (read on Flow Run below Organization level), so the figures below can be lower than
-            the real ones.
-          </p>
-        )}
-
-        {summary.error && !s ? (
-          <div className="card flex flex-col items-center gap-2 px-8 py-12 text-center">
-            <AlertTriangle size={20} className="text-warning" />
-            <div className="text-sm font-medium">Couldn't read the flow runs</div>
-            <div className="max-w-xl break-words text-xs text-subtle">{summary.error}</div>
-            <button className="btn btn-secondary btn-sm mt-2" onClick={summary.reload}>
-              <Refresh size={12} /> Retry
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="card grid grid-cols-2 gap-px overflow-hidden !bg-line xl:grid-cols-4">
-              {tiles.map((t) => (
-                <div key={t.label} className="bg-s1 px-5 py-4 dark:bg-s2">
-                  <div className="eyebrow">{t.label}</div>
-                  {t.value === null ? (
-                    <div className="skeleton mt-3 h-6 w-20" />
-                  ) : (
-                    <div className={`mt-2 text-[28px] leading-8 font-semibold tabular-nums tracking-tight ${t.valueTone ?? ""}`}>{t.value}</div>
-                  )}
-                  <div className={`mt-1 h-4 text-xs ${t.tone}`}>{t.sub}</div>
-                </div>
-              ))}
-            </div>
-
-            {summary.error && s && (
-              <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
-                Couldn't refresh: {summary.error} The figures below are from {logTime(s.until)}.
-              </p>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-10 shrink-0 items-end gap-1 border-b border-line bg-s1 px-4" role="tablist" aria-label="Flow runs">
+        {VIEWS.map((v) => (
+          <button key={v.key} role="tab" aria-selected={view === v.key} className="tab h-10 px-2" onClick={() => go({ view: v.key })}>
+            {v.label}
+            {v.key === "errors" && s && s.errors.length > 0 && (
+              <span className="ml-1.5 text-[11px] tabular-nums text-subtle">{s.errors.length.toLocaleString()}</span>
             )}
-            {s?.truncated && (
-              <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
-                This window has more than {(250_000).toLocaleString()} runs; counting stopped there, so the figures are a lower bound. Pick a shorter range for exact counts.
-              </p>
-            )}
-
-            <div className="card">
-              <div className="card-header">
-                <h2 className="card-title">Runs per {chart?.unit ?? (range === "1h" || range === "24h" ? "hour" : "day")}</h2>
-                {s && (
-                  <span className="text-xs tabular-nums text-subtle">
-                    {new Date(s.since).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} – now
+          </button>
+        ))}
+      </div>
+      <section className="min-h-0 flex-1 overflow-y-auto px-8 py-7">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="page-title">{VIEWS.find((v) => v.key === view)?.title}</h1>
+              <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted">
+                <span className="truncate">
+                  {connection?.name ?? "This environment"} · cloud flows in a solution
+                  {kept && ` · Dataverse keeps ${kept}`}
+                </span>
+                {summary.loading ? (
+                  <span className="flex shrink-0 items-center gap-1.5 text-subtle" role="status">
+                    · <Loader size={12} className="text-brand" /> Counting runs…
                   </span>
-                )}
-              </div>
-              <div className="px-5 pb-4 pt-4">
-                {chart ? (
-                  s && s.total === 0 ? (
-                    <div className="py-8 text-center text-sm text-subtle">No flow ran in the {rangeLabel(range).toLowerCase()}.</div>
-                  ) : (
-                    <RunChart bars={chart.bars} unit={chart.unit} />
-                  )
-                ) : (
-                  <div className="skeleton h-[140px]" />
-                )}
-              </div>
+                ) : s ? (
+                  <span className="shrink-0 text-subtle" title={new Date(s.until).toLocaleString()}>
+                    · as of {logTime(s.until)}
+                  </span>
+                ) : null}
+              </p>
             </div>
+            <div className="flex items-center gap-2">
+              <div className="seg" role="group" aria-label="Time range">
+                {RUN_RANGES.map((r) => (
+                  <button key={r.key} aria-pressed={range === r.key} onClick={() => setRange(r.key)} title={r.label}>
+                    {r.short}
+                  </button>
+                ))}
+              </div>
+              <button className="btn btn-secondary" onClick={summary.reload} disabled={summary.loading} title="Count the runs again, up to now">
+                <Refresh size={14} className={summary.loading ? "animate-spin" : ""} /> Refresh
+              </button>
+            </div>
+          </div>
 
-            <div className="grid gap-6 lg:grid-cols-5">
-              <FlowTable
-                stats={s?.flows ?? null}
-                names={names}
-                picked={pickedFlow}
-                onPick={(id) => pickFlow(id === pickedFlow ? null : id)}
-                range={range}
-              />
-              <RunsCard
-                connId={activeId}
-                range={range}
-                flowId={pickedFlow}
-                flowName={pickedFlow ? names.get(pickedFlow) ?? null : null}
-                names={names}
-                onClearFlow={() => pickFlow(null)}
-              />
+          {depth && !seesAllRuns(depth) && depth !== "none" && (
+            <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
+              This account can see {RUN_SCOPE[depth]} (read on Flow Run below Organization level), so the figures below can be lower than
+              the real ones.
+            </p>
+          )}
+
+          {summary.error && !s ? (
+            <div className="card flex flex-col items-center gap-2 px-8 py-12 text-center">
+              <AlertTriangle size={20} className="text-warning" />
+              <div className="text-sm font-medium">Couldn't read the flow runs</div>
+              <div className="max-w-xl break-words text-xs text-subtle">{summary.error}</div>
+              <button className="btn btn-secondary btn-sm mt-2" onClick={summary.reload}>
+                <Refresh size={12} /> Retry
+              </button>
             </div>
-          </>
+          ) : (
+            <>
+              {summary.error && s && (
+                <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
+                  Couldn't refresh: {summary.error} The figures below are from {logTime(s.until)}.
+                </p>
+              )}
+              {s?.truncated && (
+                <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
+                  This window has more than {(250_000).toLocaleString()} runs; counting stopped there, so the figures are a lower bound. Pick a shorter range for exact counts.
+                </p>
+              )}
+
+              {view === "overview" && (
+                <>
+                  <div className="card grid grid-cols-2 gap-px overflow-hidden !bg-line xl:grid-cols-4">
+                    {tiles.map((t) => (
+                      <div key={t.label} className="bg-s1 px-5 py-4 dark:bg-s2">
+                        <div className="eyebrow">{t.label}</div>
+                        {t.value === null ? (
+                          <div className="skeleton mt-3 h-6 w-20" />
+                        ) : (
+                          <div className={`mt-2 text-[28px] leading-8 font-semibold tracking-tight ${t.valueTone ?? ""}`}>{t.value}</div>
+                        )}
+                        <div className={`mt-1 h-4 truncate text-xs ${t.tone}`}>{t.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="card">
+                    <div className="card-header">
+                      <h2 className="card-title">Runs and fail rate per {chart?.unit ?? slotUnit(range)}</h2>
+                      {s && (
+                        <span className="text-xs tabular-nums text-subtle">
+                          {new Date(s.since).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} – now
+                        </span>
+                      )}
+                    </div>
+                    <div className="px-5 pb-4 pt-4">
+                      {chart ? (
+                        s && s.total === 0 ? (
+                          <div className="py-8 text-center text-sm text-subtle">No flow ran in the {rangeLabel(range).toLowerCase()}.</div>
+                        ) : (
+                          <RunChart bars={chart.bars} unit={chart.unit} rate />
+                        )
+                      ) : (
+                        <div className="skeleton h-[220px]" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-6 lg:grid-cols-2">
+                    <TopFlowsCard summary={s} names={names} onPick={(id) => go({ view: "flows", flow: id })} onAll={() => go({ view: "flows" })} />
+                    <TopErrorsCard summary={s} onPick={(code) => go({ view: "errors", code })} onAll={() => go({ view: "errors" })} />
+                  </div>
+                </>
+              )}
+
+              {view === "errors" && (
+                <ErrorsTab
+                  connId={activeId}
+                  summary={s}
+                  range={range}
+                  names={names}
+                  picked={params.has("code") ? params.get("code") : null}
+                  onPick={(code) => go({ view: "errors", code })}
+                  onFlow={(id) => go({ view: "flows", flow: id })}
+                />
+              )}
+
+              {view === "flows" && (
+                <div className="grid gap-6 xl:grid-cols-5">
+                  <FlowTable
+                    stats={s?.flows ?? null}
+                    names={names}
+                    picked={pickedFlow}
+                    onPick={(id) => go({ view: "flows", flow: id === pickedFlow ? null : id })}
+                    range={range}
+                  />
+                  <RunsCard
+                    connId={activeId}
+                    range={range}
+                    flowId={pickedFlow}
+                    flowName={pickedFlow ? names.get(pickedFlow) ?? null : null}
+                    names={names}
+                    onClearFlow={() => go({ view: "flows", flow: null })}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** The flows that failed most in the window, for the overview. */
+function TopFlowsCard({
+  summary,
+  names,
+  onPick,
+  onAll,
+}: {
+  summary: RunSummary | undefined;
+  names: Map<string, string>;
+  onPick: (flowId: string) => void;
+  onAll: () => void;
+}) {
+  const failing = summary?.flows.filter((f) => f.failed > 0) ?? null;
+  const top = failing?.slice(0, 5) ?? null;
+  const most = Math.max(1, top?.[0]?.failed ?? 1);
+  return (
+    <div className="card flex min-w-0 flex-col">
+      <div className="card-header">
+        <h2 className="card-title">Most failing flows</h2>
+        {failing && failing.length > 0 && (
+          <button className="btn btn-ghost btn-sm" onClick={onAll}>
+            View all {failing.length.toLocaleString()}
+          </button>
         )}
       </div>
-    </section>
+      {!top ? (
+        <RowsSkeleton />
+      ) : top.length === 0 ? (
+        <Quiet title="No flow failed" text="Every run in this window succeeded." />
+      ) : (
+        <ul className="px-2 py-2">
+          {top.map((f) => {
+            const name = names.get(f.flowId) ?? null;
+            return (
+              <li key={f.flowId}>
+                <button className="nav-item nav-item-tall !items-start" onClick={() => onPick(f.flowId)} title="Show this flow's runs">
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline gap-2">
+                      <span className="min-w-0 flex-1 truncate text-[13px]">
+                        {name ?? <span className="font-mono text-subtle">{f.flowId ? `${f.flowId.slice(0, 8)}…` : "(no flow)"}</span>}
+                      </span>
+                      <span className="shrink-0 text-[13px] font-medium tabular-nums text-danger">{f.failed.toLocaleString()}</span>
+                    </span>
+                    <span className="mt-1 flex items-center gap-2">
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-s3" aria-hidden="true">
+                        <span className="block h-full rounded-full bg-danger" style={{ width: `${(f.failed / most) * 100}%` }} />
+                      </span>
+                      <span className="shrink-0 text-[11px] font-normal tabular-nums text-subtle">
+                        {failRate(f.failed, f.total)} of {f.total.toLocaleString()} runs
+                        {f.lastErrorCode ? ` · ${f.lastErrorCode}` : ""}
+                      </span>
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -255,7 +383,7 @@ function FlowTable({
   const maxRate = Math.max(0.0001, ...shown.map((f) => (f.total ? f.failed / f.total : 0)));
 
   return (
-    <div className="card flex min-w-0 flex-col lg:col-span-3">
+    <div className="card flex min-w-0 flex-col xl:col-span-3">
       <div className="card-header gap-3">
         <h2 className="card-title shrink-0">Flows</h2>
         <div className="flex min-w-0 items-center gap-2">
@@ -419,7 +547,7 @@ function RunsCard({
   const openInFlows = (r: RunRow) => navigate(`${flowRoute(r.flowId!)}?${new URLSearchParams({ tab: "runs", run: r.id })}`);
 
   return (
-    <div className="card flex min-w-0 flex-col lg:col-span-2">
+    <div className="card flex min-w-0 flex-col xl:col-span-2">
       <div className="card-header gap-2">
         <h2 className="card-title min-w-0 truncate" title={flowName ?? undefined}>
           {flowId ? flowName ?? "This flow" : filters.status === "failed" ? "Recent failures" : "Recent runs"}

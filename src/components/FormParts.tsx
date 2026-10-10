@@ -65,9 +65,19 @@ export function Check({ label, checked, onChange, hint }: { label: string; check
   );
 }
 
+/** First child of every `<select className="input">`: a button holding the picked value, so styles.css can cut a long value with "…" instead of pushing the arrow out. */
+export function SelectFace() {
+  return (
+    <button type="button">
+      <selectedcontent />
+    </button>
+  );
+}
+
 export function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: Option[] }) {
   return (
     <select className="input h-8 font-mono text-[12.5px]" value={value} onChange={(e) => onChange(e.target.value)}>
+      <SelectFace />
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label ?? o.value}

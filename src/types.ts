@@ -318,6 +318,8 @@ export interface RunFilter {
   runName?: string | null;
   /** The runs this run started (child flows). */
   parentRun?: string | null;
+  /** Runs with this error code; "" = runs without one. */
+  errorCode?: string | null;
 }
 
 /** A cloud flow run (`flowrun` row). */
@@ -357,6 +359,19 @@ export interface FlowRunStats {
   lastRun: string | null;
   lastFailure: string | null;
   lastErrorCode: string | null;
+}
+
+/** Failed runs of one error code in a summary window. */
+export interface ErrorStats {
+  /** As stored; "" for failures without one. */
+  code: string;
+  failed: number;
+  /** Lowercase `workflow` ids, most failures first. */
+  flows: { flowId: string; failed: number }[];
+  firstSeen: string | null;
+  lastSeen: string | null;
+  /** Hours with failures of this code (UTC hour start), oldest first. */
+  hours: { at: string; failed: number }[];
 }
 
 /** Runs and failures of every flow since a time (`flow_run_summary`). */
@@ -426,6 +441,8 @@ export interface RunSummary {
   flows: FlowRunStats[];
   /** Hours with runs (UTC hour start), oldest first. */
   hours: { at: string; total: number; failed: number }[];
+  /** Failures grouped by error code, most first. */
+  errors: ErrorStats[];
   /** Stopped reading at the row cap: counts are a lower bound. */
   truncated: boolean;
   /** How long the environment keeps runs; null if unknown. */

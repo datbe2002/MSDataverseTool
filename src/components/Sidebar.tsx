@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import {
   Settings,
@@ -123,6 +123,28 @@ export function Sidebar({ onSettings }: Props) {
     };
   }, []);
 
+  // A short window can't fit every view: the nav scrolls. The rail has no room
+  // for a scrollbar, so it scrolls without one and fades the clipped edge(s).
+  const navRef = useRef<HTMLElement>(null);
+  const [clipped, setClipped] = useState({ top: false, bottom: false });
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const update = () => {
+      const top = nav.scrollTop > 1;
+      const bottom = nav.scrollTop + nav.clientHeight < nav.scrollHeight - 1;
+      setClipped((c) => (c.top === top && c.bottom === bottom ? c : { top, bottom }));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(nav);
+    nav.addEventListener("scroll", update, { passive: true });
+    return () => {
+      observer.disconnect();
+      nav.removeEventListener("scroll", update);
+    };
+  }, []);
+
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const project = useStore(activeProjectOf);
@@ -178,7 +200,13 @@ export function Sidebar({ onSettings }: Props) {
       </div>
 
       {/* Views */}
-      <nav className="min-h-0 overflow-y-auto overflow-x-hidden px-2.5 pt-4" aria-label="Views">
+      <nav
+        ref={navRef}
+        className="sidebar-nav min-h-0 overflow-y-auto overflow-x-hidden px-2.5 pt-4"
+        data-clip-top={clipped.top || undefined}
+        data-clip-bottom={clipped.bottom || undefined}
+        aria-label="Views"
+      >
         {NAV.map(({ tool, items }, i) => (
           <div key={tool} className="mb-4 space-y-0.5" role="group" aria-label={tool}>
             <div className="eyebrow relative px-2.5 pb-1.5">

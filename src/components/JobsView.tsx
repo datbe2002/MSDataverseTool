@@ -22,6 +22,7 @@ import { ROUTES, jobRoute } from "../lib/navigation";
 import { FilterChip, IdList, ListSkeleton, LogText, Stat } from "./LogParts";
 import { Search, Refresh, Copy, Activity, AlertTriangle, Loader, ChevronDown, ArrowUpRight, Bug } from "./Icon";
 import type { JobDetail, JobRow } from "../types";
+import { SelectFace } from "./FormParts";
 
 const DEBOUNCE_MS = 400;
 
@@ -128,6 +129,7 @@ export function JobsView() {
             onChange={(e) => set({ range: e.target.value as TimeRange })}
             aria-label="Time range"
           >
+            <SelectFace />
             {RANGES.map((r) => (
               <option key={r.key} value={r.key}>
                 {r.label}
@@ -140,6 +142,7 @@ export function JobsView() {
             onChange={(e) => set({ status: e.target.value as JobFilters["status"] })}
             aria-label="Status"
           >
+            <SelectFace />
             {JOB_STATUSES.map((s) => (
               <option key={s.key} value={s.key}>
                 {s.label}
@@ -152,6 +155,7 @@ export function JobsView() {
             onChange={(e) => set({ operationType: e.target.value })}
             aria-label="Job type"
           >
+            <SelectFace />
             {JOB_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}

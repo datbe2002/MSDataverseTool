@@ -117,6 +117,9 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+/* Unlayered like the rule above, or it would lose to it. */
+.sidebar[data-collapsed] .sidebar-nav { scrollbar-width: none; }
+.sidebar[data-collapsed] .sidebar-nav::-webkit-scrollbar { display: none; }
 
 @layer components {
   /* Shared focus ring: 2px brand ring with a gap in the surface colour. */
@@ -214,6 +217,59 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
   .input:hover { border-color: var(--line-strong); }
   .input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 22%, transparent); }
 
+  /* ---------- Select: customizable <select> (WebView2 135+), so the list matches the app instead of the Windows popup ---------- */
+  select.input, select.input::picker(select) { appearance: base-select; }
+  select.input {
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap; cursor: pointer;
+  }
+  select.input:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* <SelectFace />: the picked value shrinks and ends in "…" so a long one never pushes the arrow out */
+  select.input > button { all: unset; display: flex; align-items: center; flex: 1; min-width: 0; }
+  select.input selectedcontent { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  select.input:open { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 22%, transparent); }
+  select.input::picker-icon {
+    content: ""; flex-shrink: 0; margin-left: auto; width: 14px; height: 14px;
+    background: var(--subtle);
+    mask: center / 14px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    transition: rotate 0.15s ease, background-color 0.15s;
+  }
+  select.input:hover:not(:disabled)::picker-icon { background: var(--muted); }
+  select.input:open::picker-icon { rotate: 180deg; background: var(--brand); }
+
+  select.input::picker(select) {
+    min-width: anchor-size(width); max-height: min(340px, 60vh); overflow-y: auto;
+    margin: 4px 0; padding: 4px;
+    border: 1px solid var(--line-strong); border-radius: 9px;
+    background: var(--s1); color: var(--fg);
+    box-shadow: var(--shadow-lg);
+    opacity: 0; translate: 0 -4px;
+    transition: opacity 0.12s ease, translate 0.12s ease, overlay 0.12s allow-discrete, display 0.12s allow-discrete;
+  }
+  select.input:open::picker(select) { opacity: 1; translate: 0 0; }
+  @starting-style { select.input:open::picker(select) { opacity: 0; translate: 0 -4px; } }
+
+  select.input option {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 28px; padding: 4px 8px; border-radius: 6px;
+    color: var(--fg); background: transparent; cursor: pointer;
+  }
+  select.input option:hover, select.input option:focus-visible { background: var(--s3); outline: none; }
+  select.input option:checked { color: var(--brand); font-weight: 500; background: color-mix(in oklab, var(--brand) 10%, transparent); }
+  select.input option:checked:hover, select.input option:checked:focus-visible { background: color-mix(in oklab, var(--brand) 16%, transparent); }
+  select.input option:disabled { opacity: 0.45; cursor: not-allowed; }
+  select.input option::checkmark { order: 1; margin-left: auto; padding-left: 12px; color: var(--brand); }
+
+  select.input optgroup {
+    padding: 6px 8px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--subtle);
+  }
+  select.input optgroup + optgroup { margin-top: 4px; border-top: 1px solid var(--line); }
+  select.input optgroup option { margin: 0 -8px; font-size: 12.5px; font-weight: 400; letter-spacing: normal; }
+  select.input optgroup option:checked { font-weight: 500; }
+  @media (prefers-reduced-motion: reduce) {
+    select.input::picker-icon, select.input::picker(select) { transition: none; }
+  }
+
   .kbd {
     display: inline-flex; align-items: center; height: 20px; padding: 0 6px;
     border-radius: 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px;
@@ -307,6 +363,15 @@ code, kbd, .font-mono { font-feature-settings: "calt" 0, "zero" 1; }
     border-top: 1px solid var(--line-strong); opacity: 0; transition: opacity 160ms ease;
   }
   .sidebar[data-collapsed] .sidebar-rule { opacity: 1; }
+  /* Nav taller than the window: fade whichever edge hides more items. The
+     56px rail scrolls without a scrollbar (it would squeeze the icons). */
+  .sidebar-nav {
+    --fade-top: 0px; --fade-bottom: 0px;
+    mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent 100%);
+  }
+  .sidebar-nav[data-clip-top] { --fade-top: 24px; }
+  .sidebar-nav[data-clip-bottom] { --fade-bottom: 24px; }
+  /* (The rail's scrollbar is hidden next to the global scrollbar rules.) */
   @media (prefers-reduced-motion: reduce) {
     .sidebar, .sidebar-label, .sidebar-rule { transition: none; }
   }

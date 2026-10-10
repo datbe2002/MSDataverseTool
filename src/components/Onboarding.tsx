@@ -26,6 +26,7 @@ import {
   Sun,
 } from "./Icon";
 import type { Connection, Environment } from "../types";
+import { SelectFace } from "./FormParts";
 
 /** Set once the setup guide was finished or skipped; it then only opens from the palette. */
 const DONE_KEY = "cds.onboarded";
@@ -659,6 +660,7 @@ function EnvironmentsStep({ onBack, onNext }: { onBack: () => void; onNext: () =
                           onChange={(e) => setTag(env.id, e.target.value)}
                           aria-label={`Tag for ${env.friendlyName}`}
                         >
+                          <SelectFace />
                           <option value="">No tag</option>
                           {TAG_PRESETS.map((p) => (
                             <option key={p} value={p}>

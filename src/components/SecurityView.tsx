@@ -21,7 +21,7 @@ import {
   type Grant,
   type Matrix,
 } from "../lib/security";
-import { Combo } from "./FormParts";
+import { Combo, SelectFace } from "./FormParts";
 import { Search, Refresh, Shield, User, Loader, Check, X, AlertTriangle } from "./Icon";
 import type { AccessCheck, SecurityRole, SecurityUser } from "../types";
 
@@ -719,6 +719,7 @@ function CompareTab({ connId }: { connId: string }) {
 
   const select = (key: "a" | "b", value: string) => (
     <select className="input !h-9" value={value} onChange={(e) => pick(key, e.target.value)} disabled={!roles.data} aria-label={key === "a" ? "First role" : "Second role"}>
+      <SelectFace />
       <option value="">{roles.data ? "Pick a role…" : "Loading roles…"}</option>
       {roles.data?.map((r) => (
         <option key={r.id} value={r.id}>

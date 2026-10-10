@@ -12,6 +12,7 @@ import { Modal } from "./Modals";
 import { TagBadge } from "./TagBadge";
 import { AlertTriangle, Globe, Loader, Plus, Trash, Upload } from "./Icon";
 import type { Connection, DependencyItem, PickedFile, WebResourceDetail, WebResourceList } from "../types";
+import { SelectFace } from "./FormParts";
 
 /** The environment a write goes to, and whether it's production (red tag). */
 export function useTarget(connId: string): { conn: Connection | null; danger: boolean } {
@@ -228,6 +229,7 @@ export function NewWebResourceDialog({
         <label className="block">
           <span className="mb-1.5 block text-xs font-medium text-muted">Solution</span>
           <select className="input" value={solution} onChange={(e) => setSolution(e.target.value)} disabled={!!list.solutionsError}>
+            <SelectFace />
             {solutions.map((s) => (
               <option key={s.id} value={s.uniqueName}>
                 {s.friendlyName} · {s.prefix}_{s.count ? ` · ${s.count} web resources` : ""}
@@ -261,6 +263,7 @@ export function NewWebResourceDialog({
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium text-muted">Type</span>
             <select className="input" value={effectiveKind ?? ""} onChange={(e) => setKind(e.target.value ? Number(e.target.value) : null)}>
+              <SelectFace />
               <option value="">Pick a type…</option>
               {Object.entries(KINDS)
                 .filter(([k]) => k !== "8")

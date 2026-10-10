@@ -47,6 +47,9 @@ pub struct RunFilter {
     pub run_name: Option<String>,
     /// The child runs a run started (their `parentrunid`).
     pub parent_run: Option<String>,
+    /// Runs with this error code; "" = runs without one.
+    #[serde(default)]
+    pub error_code: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -106,6 +109,35 @@ pub struct HourBucket {
     pub failed: u64,
 }
 
+/// Failed runs of one error code in a summary window.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorStats {
+    /// As stored; "" for failures without one.
+    pub code: String,
+    pub failed: u64,
+    /// The flows it hit, most failures first.
+    pub flows: Vec<ErrorFlow>,
+    pub first_seen: Option<String>,
+    pub last_seen: Option<String>,
+    /// Hours with failures of this code, oldest first.
+    pub hours: Vec<ErrorHour>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorFlow {
+    pub flow_id: String,
+    pub failed: u64,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorHour {
+    pub at: String,
+    pub failed: u64,
+}
+
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RunSummary {
@@ -120,6 +152,8 @@ pub struct RunSummary {
     pub flows: Vec<FlowStats>,
     /// Hours with runs, oldest first.
     pub hours: Vec<HourBucket>,
+    /// Failures grouped by error code, most first.
+    pub errors: Vec<ErrorStats>,
     /// Stopped at `MAX_SCAN_ROWS`: the counts are a lower bound.
     pub truncated: bool,
     /// How long the environment keeps runs (None if it couldn't be read).
@@ -191,6 +225,12 @@ pub fn filter_expr(f: &RunFilter) -> AppResult<Option<String>> {
     if let Some(n) = non_empty(&f.parent_run) {
         parts.push(format!("parentrunid eq '{}'", run_name(n)?));
     }
+    if let Some(code) = &f.error_code {
+        parts.push(match code.trim() {
+            "" => "errorcode eq null".into(),
+            c => format!("errorcode eq '{}'", error_code(c)?.replace('\'', "''")),
+        });
+    }
     Ok(if parts.is_empty() { None } else { Some(parts.join(" and ")) })
 }
 
@@ -200,6 +240,15 @@ pub fn run_name(s: &str) -> AppResult<&str> {
         Ok(s)
     } else {
         Err(AppError::msg(format!("Invalid run id: {}", s)))
+    }
+}
+
+/// An error code to filter on: any text a code can be, short, without control characters.
+pub fn error_code(s: &str) -> AppResult<&str> {
+    if s.len() <= 200 && !s.chars().any(char::is_control) {
+        Ok(s)
+    } else {
+        Err(AppError::msg("Invalid error code"))
     }
 }
 
@@ -345,12 +394,36 @@ pub fn slices(from: DateTime<Utc>, to: DateTime<Utc>) -> Vec<(DateTime<Utc>, Dat
     out
 }
 
+/// Failures of one error code while a summary is read.
+#[derive(Default, Debug)]
+pub struct ErrorTally {
+    pub failed: u64,
+    pub flows: HashMap<String, u64>,
+    pub first: Option<String>,
+    pub last: Option<String>,
+    /// Hour (Unix seconds) → failures.
+    pub hours: HashMap<i64, u64>,
+}
+
+impl ErrorTally {
+    fn seen(&mut self, at: &Option<String>) {
+        if at.is_some() && (self.first.is_none() || *at < self.first) {
+            self.first = at.clone();
+        }
+        if *at > self.last {
+            self.last = at.clone();
+        }
+    }
+}
+
 /// Counts of a summary while it's read.
 #[derive(Default, Debug)]
 pub struct Tally {
     pub flows: HashMap<String, FlowStats>,
     /// Hour (Unix seconds) → (runs, failures).
     pub hours: HashMap<i64, (u64, u64)>,
+    /// Error code ("" = none) → its failures.
+    pub errors: HashMap<String, ErrorTally>,
     pub rows: usize,
 }
 
@@ -373,19 +446,30 @@ impl Tally {
         if start > s.last_run {
             s.last_run = start.clone();
         }
+        let code = opt_str(row, "errorcode");
         if what == "failed" && start > s.last_failure {
             s.last_failure = start.clone();
-            s.last_error_code = opt_str(row, "errorcode");
+            s.last_error_code = code.clone();
         }
-        if let Some(hour) = start
+        let hour = start
             .as_deref()
             .and_then(|t| utc(t).ok())
             .and_then(|t| t.duration_trunc(Duration::hours(1)).ok())
-        {
-            let h = self.hours.entry(hour.timestamp()).or_default();
+            .map(|t| t.timestamp());
+        if let Some(hour) = hour {
+            let h = self.hours.entry(hour).or_default();
             h.0 += 1;
             if what == "failed" {
                 h.1 += 1;
+            }
+        }
+        if what == "failed" {
+            let e = self.errors.entry(code.map(|c| c.trim().to_string()).unwrap_or_default()).or_default();
+            e.failed += 1;
+            *e.flows.entry(s.flow_id.clone()).or_default() += 1;
+            e.seen(&start);
+            if let Some(hour) = hour {
+                *e.hours.entry(hour).or_default() += 1;
             }
         }
     }
@@ -412,6 +496,18 @@ impl Tally {
                 s.last_error_code = o.last_error_code;
             }
         }
+        for (code, o) in other.errors {
+            let e = self.errors.entry(code).or_default();
+            e.failed += o.failed;
+            for (flow, n) in o.flows {
+                *e.flows.entry(flow).or_default() += n;
+            }
+            for (h, n) in o.hours {
+                *e.hours.entry(h).or_default() += n;
+            }
+            e.seen(&o.first);
+            e.seen(&o.last);
+        }
     }
 
     pub fn into_summary(self, since: DateTime<Utc>, until: DateTime<Utc>, truncated: bool, retention_seconds: Option<i64>) -> RunSummary {
@@ -420,6 +516,28 @@ impl Tally {
         let mut hours: Vec<(i64, (u64, u64))> = self.hours.into_iter().collect();
         hours.sort_by_key(|(h, _)| *h);
         let sum = |f: fn(&FlowStats) -> u64| flows.iter().map(f).sum::<u64>();
+        let mut errors: Vec<ErrorStats> = self
+            .errors
+            .into_iter()
+            .map(|(code, e)| {
+                let mut flows: Vec<ErrorFlow> = e.flows.into_iter().map(|(flow_id, failed)| ErrorFlow { flow_id, failed }).collect();
+                flows.sort_by(|a, b| b.failed.cmp(&a.failed).then(a.flow_id.cmp(&b.flow_id)));
+                let mut hours: Vec<(i64, u64)> = e.hours.into_iter().collect();
+                hours.sort_by_key(|(h, _)| *h);
+                ErrorStats {
+                    code,
+                    failed: e.failed,
+                    flows,
+                    first_seen: e.first,
+                    last_seen: e.last,
+                    hours: hours
+                        .into_iter()
+                        .filter_map(|(h, failed)| Some(ErrorHour { at: odata_time(DateTime::from_timestamp(h, 0)?), failed }))
+                        .collect(),
+                }
+            })
+            .collect();
+        errors.sort_by(|a, b| b.failed.cmp(&a.failed).then(a.code.cmp(&b.code)));
         RunSummary {
             since: odata_time(since),
             until: odata_time(until),
@@ -435,6 +553,7 @@ impl Tally {
                 })
                 .collect(),
             flows,
+            errors,
             truncated,
             retention_seconds,
         }
@@ -557,6 +676,16 @@ mod tests {
     }
 
     #[test]
+    fn runs_are_found_by_error_code() {
+        let code = |c: &str| filter_expr(&RunFilter { error_code: Some(c.into()), ..Default::default() });
+        assert_eq!(code("ActionFailed").unwrap().unwrap(), "errorcode eq 'ActionFailed'");
+        assert_eq!(code("It's broken").unwrap().unwrap(), "errorcode eq 'It''s broken'");
+        assert_eq!(code("").unwrap().unwrap(), "errorcode eq null");
+        assert!(code("a\nb").is_err());
+        assert!(code(&"x".repeat(201)).is_err());
+    }
+
+    #[test]
     fn bad_values_are_refused() {
         let bad = |f: RunFilter| filter_expr(&f).is_err();
         assert!(bad(RunFilter { status: Some("broken".into()), ..Default::default() }));
@@ -646,6 +775,42 @@ mod tests {
                 HourBucket { at: "2026-10-03T05:00:00Z".into(), total: 2, failed: 1 },
             ]
         );
+        assert_eq!(s.errors.iter().map(|e| (e.code.as_str(), e.failed)).collect::<Vec<_>>(), vec![("New", 1), ("Old", 1)]);
+    }
+
+    #[test]
+    fn failures_are_grouped_by_error_code() {
+        let row = |flow: &str, status: &str, at: &str, code: Option<&str>| {
+            json!({ "_workflow_value": flow, "status": status, "starttime": at, "errorcode": code })
+        };
+        let mut a = Tally::default();
+        a.add(&row("F1", "Failed", "2026-10-03T03:10:00Z", Some("ActionFailed")));
+        a.add(&row("F2", "Failed", "2026-10-03T03:20:00Z", Some("ActionFailed")));
+        a.add(&row("F2", "TimedOut", "2026-10-03T04:00:00Z", None));
+        a.add(&row("F1", "Cancelled", "2026-10-03T04:10:00Z", Some("Cancelled")));
+        let mut b = Tally::default();
+        b.add(&row("F2", "Failed", "2026-10-03T02:00:00Z", Some("ActionFailed")));
+        b.add(&row("F1", "Failed", "2026-10-03T05:00:00Z", Some(" Terminated ")));
+        a.merge(b);
+        let t = |s: &str| utc(s).unwrap();
+        let s = a.into_summary(t("2026-10-03T00:00:00Z"), t("2026-10-03T06:00:00Z"), false, None);
+        // Only failures count; a code is trimmed; no code is "".
+        assert_eq!(
+            s.errors.iter().map(|e| (e.code.as_str(), e.failed)).collect::<Vec<_>>(),
+            vec![("ActionFailed", 3), ("", 1), ("Terminated", 1)]
+        );
+        let top = &s.errors[0];
+        assert_eq!(top.flows, vec![ErrorFlow { flow_id: "f2".into(), failed: 2 }, ErrorFlow { flow_id: "f1".into(), failed: 1 }]);
+        assert_eq!(top.first_seen.as_deref(), Some("2026-10-03T02:00:00Z"));
+        assert_eq!(top.last_seen.as_deref(), Some("2026-10-03T03:20:00Z"));
+        assert_eq!(
+            top.hours,
+            vec![
+                ErrorHour { at: "2026-10-03T02:00:00Z".into(), failed: 1 },
+                ErrorHour { at: "2026-10-03T03:00:00Z".into(), failed: 2 },
+            ]
+        );
+        assert_eq!(s.errors.iter().map(|e| e.failed).sum::<u64>(), s.failed);
     }
 
     #[test]

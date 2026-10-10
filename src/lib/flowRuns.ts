@@ -6,7 +6,7 @@ import { api } from "../api";
 import { createPagedStore } from "./pagedStore";
 import { createEnvCache } from "./envCache";
 import type { OutlineNode } from "./flowOutline";
-import type { RunOutcome, RunPage, RunReadDepth, RunRow, RunStep, RunStepContent, RunSteps, RunSummary } from "../types";
+import type { ErrorStats, RunOutcome, RunPage, RunReadDepth, RunRow, RunStep, RunStepContent, RunSteps, RunSummary } from "../types";
 
 export type RunRange = "1h" | "24h" | "7d" | "28d";
 
@@ -214,12 +214,16 @@ export interface Bar {
   failed: number;
 }
 
+/** Slots of a chart: an hour each for a day or less, a local day each beyond. */
+export const slotUnit = (range: RunRange): "hour" | "day" => (range === "1h" || range === "24h" ? "hour" : "day");
+
 /**
  * The summary's hours as chart bars: a bar per hour for a day or less, per
- * local day beyond (empty slots included, so gaps show).
+ * local day beyond (empty slots included, so gaps show). With `error`, only
+ * that error code's failures (total = failed).
  */
-export function bars(summary: RunSummary, range: RunRange): { bars: Bar[]; unit: "hour" | "day" } {
-  const unit = range === "1h" || range === "24h" ? "hour" : "day";
+export function bars(summary: RunSummary, range: RunRange, error?: ErrorStats): { bars: Bar[]; unit: "hour" | "day" } {
+  const unit = slotUnit(range);
   const since = Date.parse(summary.since);
   const until = Date.parse(summary.until);
   const slotOf = (t: number) => {
@@ -236,13 +240,87 @@ export function bars(summary: RunSummary, range: RunRange): { bars: Bar[]; unit:
   };
   const slots = new Map<number, Bar>();
   for (let t = slotOf(since); t <= until; t = next(t)) slots.set(t, { at: t, total: 0, failed: 0 });
-  for (const h of summary.hours) {
+  const hours = error ? error.hours.map((h) => ({ at: h.at, total: h.failed, failed: h.failed })) : summary.hours;
+  for (const h of hours) {
     const slot = slots.get(slotOf(Date.parse(h.at)));
     if (!slot) continue;
     slot.total += h.total;
     slot.failed += h.failed;
   }
   return { bars: [...slots.values()], unit };
+}
+
+// ---- Failures by error code ----
+
+/** How an error code reads: "" is a failure that came without one. */
+export const codeLabel = (code: string) => code || "No error code";
+
+/** Failed runs sampled per error code to read their messages. */
+export const SAMPLE_MAX = 300;
+
+export interface ErrorSample {
+  rows: RunRow[];
+  /** More failed runs with this code than were read. */
+  more: boolean;
+}
+
+/**
+ * The newest failed runs with an error code in a summary's window (key:
+ * `since|until|code`), up to SAMPLE_MAX: the summary counts codes, only the
+ * runs themselves carry the messages.
+ */
+export const errorSamples = createEnvCache<ErrorSample>(async (connId, key) => {
+  const [since, until, ...rest] = key.split("|");
+  const filter = { since, until, status: "failed" as const, errorCode: rest.join("|") };
+  const rows: RunRow[] = [];
+  let next: string | null = null;
+  do {
+    const page: RunPage = await guarded(connId, api.flowRuns(connId, next ? {} : filter, next));
+    rows.push(...page.rows);
+    next = page.next;
+  } while (next && rows.length < SAMPLE_MAX);
+  return { rows: rows.slice(0, SAMPLE_MAX), more: !!next || rows.length > SAMPLE_MAX };
+});
+
+export const sampleKey = (summary: RunSummary, code: string) => `${summary.since}|${summary.until}|${code}`;
+
+export interface MessageGroup {
+  /** The message with ids, numbers and times blanked: what the runs share. */
+  pattern: string;
+  /** One real message of the group (the newest). */
+  example: string;
+  /** Its full text. */
+  full: string | null;
+  runs: RunRow[];
+  flows: number;
+}
+
+/** Ids, numbers and times differ run to run; blanked, the same failure reads the same. */
+export function messagePattern(gist: string): string {
+  return gist
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "<id>")
+    .replace(/\b\d{4}-\d{2}-\d{2}[T ][\d:.]+(Z|[+-]\d{2}:?\d{2})?/g, "<time>")
+    .replace(/\b[0-9A-F]{20,}[A-Z0-9]*\b/g, "<id>")
+    .replace(/\d+([.,]\d+)*/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Sampled runs grouped by what their error says, most runs first. */
+export function messageGroups(rows: RunRow[]): MessageGroup[] {
+  const groups = new Map<string, MessageGroup>();
+  for (const r of rows) {
+    const gist = errorGist(r.errorMessage) ?? "";
+    const pattern = gist ? messagePattern(gist) : "";
+    let g = groups.get(pattern);
+    if (!g) {
+      g = { pattern, example: gist, full: r.errorMessage, runs: [], flows: 0 };
+      groups.set(pattern, g);
+    }
+    g.runs.push(r);
+  }
+  for (const g of groups.values()) g.flows = new Set(g.runs.map((r) => r.flowId ?? "")).size;
+  return [...groups.values()].sort((a, b) => b.runs.length - a.runs.length || a.pattern.localeCompare(b.pattern));
 }
 
 const RANGE_KEY = "cds.flowruns.range";
