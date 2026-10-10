@@ -408,15 +408,17 @@ export interface RunSearchScope {
   steps: string[] | null;
   /** With `steps`: the trigger's outputs too. */
   trigger: boolean;
+  /** Without `steps`: steps not to read. */
+  skip?: string[];
 }
 
-/** Where a searched value was found in a run. */
+/** Where a searched value was found in a run (or, for "ran", a step that ran). */
 export interface RunSearchHit {
   /** The step's name in the definition. */
   step: string;
-  part: "inputs" | "outputs";
+  part: "inputs" | "outputs" | "ran";
   repetition: { scopeName: string; itemIndex: number }[];
-  /** The text around the match, on one line. */
+  /** The text around the match, on one line; for "ran", the step's status. */
   snippet: string;
 }
 
