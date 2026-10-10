@@ -503,6 +503,10 @@ pub struct SearchScope {
     /// With `steps`: the trigger's outputs too.
     #[serde(default)]
     pub trigger: bool,
+    /// Without `steps`: steps not to read (Initialize variable: its value is
+    /// usually the trigger's, found there already).
+    #[serde(default)]
+    pub skip: Vec<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -593,7 +597,7 @@ pub fn search_run(
                 skipped += 1;
             }
             steps.extend(all.trigger);
-            steps.extend(all.actions);
+            steps.extend(all.actions.into_iter().filter(|a| !scope.skip.contains(&a.name)));
         }
         Some(names) => {
             if scope.trigger {
@@ -746,7 +750,9 @@ mod tests {
         let s: SearchScope = serde_json::from_value(json!({ "steps": ["Parse_JSON"], "trigger": false })).unwrap();
         assert_eq!(s.steps.as_deref(), Some(&["Parse_JSON".to_string()][..]));
         let all: SearchScope = serde_json::from_value(json!({ "steps": null })).unwrap();
-        assert!(all.steps.is_none() && !all.trigger);
+        assert!(all.steps.is_none() && !all.trigger && all.skip.is_empty());
+        let some: SearchScope = serde_json::from_value(json!({ "steps": null, "skip": ["Initialize_PO"] })).unwrap();
+        assert_eq!(some.skip, vec!["Initialize_PO".to_string()]);
     }
 
     #[test]

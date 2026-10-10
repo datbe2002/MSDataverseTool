@@ -393,6 +393,8 @@ export interface RunSearchScope {
   steps: string[] | null;
   /** With `steps`: the trigger's outputs too. */
   trigger: boolean;
+  /** Without `steps`: steps not to read. */
+  skip?: string[];
 }
 
 /** Where a searched value was found in a run. */

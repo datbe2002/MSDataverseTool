@@ -50,6 +50,7 @@ import { IdList, ListSkeleton } from "./LogParts";
 import { Collapse } from "./Collapse";
 import { JsonView, parseJson } from "./JsonView";
 import { MAX_RUNS, searchOf, useRunSearch, type SearchWindow } from "../lib/runSearch";
+import { Combo } from "./FormParts";
 import { FlowDesigner } from "./FlowDesigner";
 import { StepIcon } from "./StepIcon";
 import { Modal } from "./Modals";
@@ -1375,6 +1376,10 @@ interface StepOption {
   name: string;
   depth: number;
   trigger: boolean;
+  /** Friendly type ("Initialize variable", "Connector"). */
+  type: string;
+  /** Raw `type` in the definition (`InitializeVariable`…). */
+  actionType: string;
 }
 
 function stepOptions(outline: OutlineNode[] | null): StepOption[] {
@@ -1385,7 +1390,7 @@ function stepOptions(outline: OutlineNode[] | null): StepOption[] {
         walk(n.children, depth);
         continue;
       }
-      out.push({ key: n.key, name: n.name, depth, trigger: n.kind === "trigger" });
+      out.push({ key: n.key, name: n.name, depth, trigger: n.kind === "trigger", type: n.type, actionType: n.actionType });
       walk(n.children, depth + 1);
     }
   };
@@ -1436,6 +1441,11 @@ function RunSearchBar({
     : null;
   const option = options.find((o) => o.key === step) ?? null;
   const running = search?.status === "running";
+  const skip = useMemo(() => options.filter((o) => o.actionType === "InitializeVariable").map((o) => o.key), [options]);
+  const comboOptions = useMemo(
+    () => options.map((o) => ({ value: o.key, label: o.name, hint: o.type || undefined })),
+    [options]
+  );
 
   const pickStep = (key: string) => {
     setStep(key);
@@ -1459,11 +1469,11 @@ function RunSearchBar({
         }
       : { since: runSince(when), until: null, status: filters.status, label: rangeLabel(when).toLowerCase(), widenable: when !== "28d" };
     const scope: RunSearchScope = !option
-      ? { steps: null, trigger: false }
+      ? { steps: null, trigger: false, skip }
       : option.trigger
       ? { steps: [], trigger: true }
       : { steps: [option.key], trigger: false };
-    start(connId, flowId, value, scope, option ? option.name : "every step", window);
+    start(connId, flowId, value, scope, option ? option.name : skip.length ? "every step but Initialize variable" : "every step", window);
   };
 
   return (
@@ -1481,21 +1491,16 @@ function RunSearchBar({
       <Collapse open={!!needle.trim() || !!search}>
         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1.5">
           <span className="text-[11.5px] text-subtle">in</span>
-          <select
-            className="input col-span-2 !h-7 min-w-0 !px-2 !text-[12px]"
-            value={option ? option.key : ""}
-            onChange={(e) => pickStep(e.target.value)}
-            aria-label="Step to look in"
-            title="Looking in one step is much quicker than in every step"
-          >
-            <option value="">Every step (slow)</option>
-            {options.map((o) => (
-              <option key={o.key} value={o.key}>
-                {"  ".repeat(o.depth)}
-                {o.name}
-              </option>
-            ))}
-          </select>
+          <div className="col-span-2 min-w-0" title="Looking in one step is much quicker than in every step">
+            <Combo
+              value={option ? option.key : ""}
+              onCommit={pickStep}
+              options={comboOptions}
+              placeholder={skip.length ? "Every step but Initialize variable (slow)" : "Every step (slow)"}
+              ariaLabel="Step to look in"
+              strict
+            />
+          </div>
           <span className="text-[11.5px] text-subtle">when</span>
           <select
             className="input !h-7 min-w-0 !px-2 !text-[12px]"
@@ -1599,6 +1604,7 @@ function RunSearchResults({
 }) {
   const search = useRunSearch((s) => searchOf(s.searches, connId, flowId));
   const clear = useRunSearch((s) => s.clear);
+  const more = useRunSearch((s) => s.more);
   if (!search) return null;
 
   const matches = [...search.matches].sort((a, b) => (b.run.startTime ?? "").localeCompare(a.run.startTime ?? ""));
@@ -1643,7 +1649,16 @@ function RunSearchResults({
         {search.error && <div className="mt-1.5 break-words text-[11.5px] text-warning">{search.error}</div>}
         {(search.capped || search.failed > 0 || search.skipped > 0) && (
           <div className="mt-1.5 space-y-0.5 text-[11px] text-subtle">
-            {search.capped && <div>Only the newest {MAX_RUNS.toLocaleString()} runs of the window are searched.</div>}
+            {search.capped && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span>The window has older runs, not searched yet.</span>
+                {search.status === "done" && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => more(connId, flowId)}>
+                    Search {MAX_RUNS.toLocaleString()} more
+                  </button>
+                )}
+              </div>
+            )}
             {search.failed > 0 && <div className="text-warning">{search.failed.toLocaleString()} run(s) couldn't be searched.</div>}
             {search.skipped > 0 && (
               <div className="text-warning">
@@ -1690,7 +1705,9 @@ function RunSearchResults({
               {search.status === "done"
                 ? `No run (${search.windowLabel}) has “${search.needle}” in ${search.scopeLabel}.${
                     search.widenable ? " Try a wider time window" : ""
-                  }${search.scope.steps ? `${search.widenable ? ", or" : " Try"} every step.` : search.widenable ? "." : ""}`
+                  }${search.scope.steps ? `${search.widenable ? ", or" : " Try"} every step.` : search.widenable ? "." : ""}${
+                    search.scope.skip?.length ? " Initialize variable steps were left out: pick one to search it." : ""
+                  }`
                 : ""}
             </div>
           </li>

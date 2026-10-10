@@ -103,6 +103,19 @@ function placeList(input: HTMLElement): ListBox {
   return { left, width, bottom: window.innerHeight - r.top + 4, maxHeight: Math.min(LIST_MAX_H, above - 4) };
 }
 
+/** The option whose value or label is `v` (any case). */
+function exact(options: Option[] | undefined, v: string): Option | undefined {
+  const t = v.toLowerCase();
+  return options?.find((o) => o.value.toLowerCase() === t || o.label?.toLowerCase() === t);
+}
+
+/** 0 = is `q`, 1 = starts with it, 2 = has it (value or label). */
+function rank(o: Option, q: string): number {
+  const v = o.value.toLowerCase();
+  const l = o.label?.toLowerCase() ?? "";
+  return v === q || l === q ? 0 : v.startsWith(q) || l.startsWith(q) ? 1 : 2;
+}
+
 /**
  * Searchable picker that also takes any typed value (a column the metadata
  * doesn't list still works). Writes on pick / Enter / leaving the field.
@@ -114,18 +127,25 @@ export function Combo({
   placeholder,
   loading,
   hintSpace,
+  strict,
+  ariaLabel,
 }: {
   value: string;
   onCommit: (v: string) => void;
   options: Option[] | undefined;
   placeholder?: string;
   loading?: boolean;
+  /** Only an option (or empty) is taken: anything else typed goes back to `value`. */
+  strict?: boolean;
+  ariaLabel?: string;
   /** Always keep the line under the input (for the picked option's label), so the field's height never changes — for forms with fields side by side. */
   hintSpace?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  // The highlight was moved with the arrows: Enter takes it even with nothing typed.
+  const [moved, setMoved] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [box, setBox] = useState<ListBox | null>(null);
@@ -150,15 +170,20 @@ export function Combo({
     if (!open || !q || q === value.toLowerCase()) return all.slice(0, 300);
     return all
       .filter((o) => o.value.toLowerCase().includes(q) || o.label?.toLowerCase().includes(q))
-      .sort((a, b) => Number(!a.value.toLowerCase().startsWith(q)) - Number(!b.value.toLowerCase().startsWith(q)))
+      .sort((a, b) => rank(a, q) - rank(b, q))
       .slice(0, 300);
   }, [options, q, open, value]);
-  useEffect(() => setActive(0), [q]);
+  useEffect(() => {
+    setActive(0);
+    setMoved(false);
+  }, [q]);
   useEffect(() => {
     listRef.current?.children[active]?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
   const pick = (v: string) => {
+    if (strict && v) v = exact(options, v)?.value ?? value;
+    setMoved(false);
     setDraft(v);
     setOpen(false);
     if (v !== value) onCommit(v);
@@ -180,17 +205,26 @@ export function Combo({
           }}
           onBlur={() => {
             // A click in the list lands first (onMouseDown below).
-            setOpen(false);
-            if (draft.trim() !== value) onCommit(draft.trim());
+            pick(draft.trim());
           }}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               setOpen(true);
+              setMoved(true);
               setActive((a) => Math.min(filtered.length - 1, a + 1));
-            } else if (e.key === "ArrowUp") setActive((a) => Math.max(0, a - 1));
-            else if (e.key === "Enter") {
+            } else if (e.key === "ArrowUp") {
+              setMoved(true);
+              setActive((a) => Math.max(0, a - 1));
+            } else if (e.key === "Enter") {
               e.preventDefault();
-              pick(open && filtered[active] && q !== value.toLowerCase() ? filtered[active].value : draft.trim());
+              const highlighted = open ? filtered[active] : undefined;
+              pick(
+                highlighted && moved
+                  ? highlighted.value
+                  : !q
+                  ? ""
+                  : exact(options, draft.trim())?.value ?? (highlighted && q !== value.toLowerCase() ? highlighted.value : draft.trim())
+              );
             } else if (e.key === "Escape") {
               setDraft(value);
               setOpen(false);
@@ -200,6 +234,7 @@ export function Combo({
           spellCheck={false}
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
         />
         {loading && <Loader size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-subtle" />}
       </div>
