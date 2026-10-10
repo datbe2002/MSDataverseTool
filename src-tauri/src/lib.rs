@@ -723,11 +723,18 @@ async fn flow_run_search(
     run_name: String,
     needle: String,
     scope: flowapi::SearchScope,
+    search_id: String,
 ) -> AppResult<flowapi::RunSearch> {
     on_flow_api(state.inner(), &connection_id, move |host, dv, api| {
-        flowapi::search_run(host, dv, api, &flow_id, &run_name, &needle, &scope)
+        flowapi::search_run(host, dv, api, &flow_id, &run_name, &needle, &scope, &search_id)
     })
     .await
+}
+
+/// Ends the runs a stopped search is still reading.
+#[tauri::command]
+fn flow_run_search_stop(search_id: String) {
+    flowapi::stop_search(&search_id);
 }
 
 /// A step's inputs or outputs, behind the signed link the API gave.
@@ -1373,6 +1380,7 @@ pub fn run() {
             flow_run_step_repetitions,
             flow_run_content,
             flow_run_search,
+            flow_run_search_stop,
             open_flow_run,
             flow_tasks,
             flow_task_defaults,
