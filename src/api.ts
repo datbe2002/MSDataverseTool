@@ -144,6 +144,9 @@ export const api = {
   /** Searches one run's step inputs / outputs for a value (any case). */
   flowRunSearch: (connectionId: string, flowId: string, runName: string, needle: string, scope: RunSearchScope, searchId: string) =>
     invoke<{ hits: RunSearchHit[]; skipped: number }>("flow_run_search", { connectionId, flowId, runName, needle, scope, searchId }),
+  /** Which of these steps ran in one run (anything but Skipped), e.g. a Catch scope. */
+  flowRunStepsRan: (connectionId: string, flowId: string, runName: string, steps: string[], searchId: string) =>
+    invoke<{ hits: RunSearchHit[]; skipped: number }>("flow_run_steps_ran", { connectionId, flowId, runName, steps, searchId }),
   /** Ends the runs a stopped search is still reading in the backend. */
   flowRunSearchStop: (searchId: string) => invoke<void>("flow_run_search_stop", { searchId }),
   /** Opens the run in the Power Automate portal. */

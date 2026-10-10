@@ -731,6 +731,22 @@ async fn flow_run_search(
     .await
 }
 
+/// Which of these steps ran in one run (Runs › Catch ran).
+#[tauri::command]
+async fn flow_run_steps_ran(
+    state: State<'_, AppState>,
+    connection_id: String,
+    flow_id: String,
+    run_name: String,
+    steps: Vec<String>,
+    search_id: String,
+) -> AppResult<flowapi::RunSearch> {
+    on_flow_api(state.inner(), &connection_id, move |host, dv, api| {
+        flowapi::steps_ran(host, dv, api, &flow_id, &run_name, &steps, &search_id)
+    })
+    .await
+}
+
 /// Ends the runs a stopped search is still reading.
 #[tauri::command]
 fn flow_run_search_stop(search_id: String) {
@@ -1381,6 +1397,7 @@ pub fn run() {
             flow_run_content,
             flow_run_search,
             flow_run_search_stop,
+            flow_run_steps_ran,
             open_flow_run,
             flow_tasks,
             flow_task_defaults,

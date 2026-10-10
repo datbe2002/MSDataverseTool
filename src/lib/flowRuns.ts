@@ -440,6 +440,36 @@ export function stepLines(steps: RunSteps, outline: OutlineNode[] | null): StepL
   return out;
 }
 
+/** Outline ids of the steps inside an Apply to each / Do until (at any depth). */
+export function loopedIds(outline: OutlineNode[]): Set<string> {
+  const out = new Set<string>();
+  const walk = (nodes: OutlineNode[], inLoop: boolean) => {
+    for (const n of nodes) {
+      if (inLoop && n.kind !== "branch") out.add(n.id);
+      // A child flow shown inline runs in its own run.
+      if (n.inline) continue;
+      const loop = ["foreach", "until"].includes(n.actionType.toLowerCase());
+      walk(n.children, inLoop || loop);
+    }
+  };
+  walk(outline, false);
+  return out;
+}
+
+/**
+ * Whether to read a step's repetitions. The API usually says (`repetitionCount`),
+ * but a step in a loop can come back without it, and without its error, inputs or
+ * outputs: those are only on its repetitions. `inLoop` = what the definition says
+ * (null when it isn't read): without it, a step that ran but has nothing of its own
+ * is worth a look.
+ */
+export function readsRepetitions(step: RunStep, inLoop: boolean | null): boolean {
+  if ((step.repetitionCount ?? 0) > 0) return true;
+  if (stepTone(step.status) === "skipped") return false;
+  if (inLoop !== null) return inLoop;
+  return !step.inputsLink && !step.outputsLink && !step.errorMessage;
+}
+
 /** Where to look first: the first failed step that isn't just a container of failures. */
 export function firstFailure(lines: StepLine[]): RunStep | null {
   const failed = lines.filter((l): l is Extract<StepLine, { kind: "step" }> => l.kind === "step" && stepTone(l.step.status) === "failed");

@@ -623,7 +623,22 @@ pub fn search_run(
         check_stopped(search_id)?;
         // In a loop the step's own links (if any) are one repetition: read them all.
         let looped = step.repetition_count.unwrap_or(0) > 0;
-        let reads: Vec<Step> = if looped {
+        // A step in a loop can also come back without its count, error, inputs or outputs:
+        // those are on its repetitions (none for a step that isn't in a loop).
+        let bare = !looped
+            && step.status != "Skipped"
+            && step.inputs_link.is_none()
+            && step.outputs_link.is_none()
+            && step.error_message.is_none();
+        let reads: Vec<Step> = if bare {
+            match read_repetitions(host, dv_token, token, flow_id, run_name, &step.name, MAX_REPETITIONS) {
+                Ok(mut reps) if !reps.is_empty() => {
+                    reps.truncate(MAX_REPETITIONS);
+                    reps
+                }
+                _ => vec![step.clone()],
+            }
+        } else if looped {
             let mut reps = read_repetitions(host, dv_token, token, flow_id, run_name, &step.name, MAX_REPETITIONS)?;
             reps.truncate(MAX_REPETITIONS);
             // Repetitions not read: their bodies count as not searched.
@@ -651,10 +666,69 @@ pub fn search_run(
     Ok(RunSearch { hits, skipped })
 }
 
+/// Which of `steps` ran in one run (anything but Skipped), e.g. a Catch scope: a run
+/// can succeed although its error handling ran. One hit per step that ran; its
+/// `snippet` is the step's status.
+pub fn steps_ran(
+    host: &str,
+    dv_token: &str,
+    token: &str,
+    flow_id: &str,
+    run_name: &str,
+    steps: &[String],
+    search_id: &str,
+) -> AppResult<RunSearch> {
+    if steps.is_empty() {
+        return Err(AppError::msg("No step to check"));
+    }
+    let env = environment_id(host, dv_token)?;
+    let mut hits = Vec::new();
+    for name in steps {
+        check_stopped(search_id)?;
+        let path = format!("/actions/{}?api-version={}", step_segment(name)?, VERSION);
+        let step = match under_run(host, dv_token, token, &env, flow_id, run_name, &path) {
+            Ok(v) => parse_step(&v),
+            // The step isn't in this run (the flow changed since).
+            Err(e) if e.to_string().contains("(404") => continue,
+            Err(e) => return Err(e),
+        };
+        if let Some(hit) = ran_hit(name, &step) {
+            hits.push(hit);
+        }
+    }
+    Ok(RunSearch { hits, skipped: 0 })
+}
+
+/// A hit for a step that ran: its status (and how many times, in a loop).
+fn ran_hit(name: &str, step: &Step) -> Option<SearchHit> {
+    if step.status.is_empty() || step.status.eq_ignore_ascii_case("Skipped") {
+        return None;
+    }
+    let mut snippet = step.status.clone();
+    if let Some(n) = step.repetition_count.filter(|n| *n > 0) {
+        snippet.push_str(&format!(" · in a loop ({} repetitions)", n));
+    }
+    if let Some(message) = &step.error_message {
+        snippet.push_str(&format!(" · {}", message.split_whitespace().collect::<Vec<_>>().join(" ")));
+    }
+    Some(SearchHit { step: name.to_string(), part: "ran", repetition: Vec::new(), snippet })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_step_ran_unless_it_was_skipped() {
+        let skipped = parse_step(&json!({ "name": "Catch", "properties": { "status": "Skipped", "code": "ActionSkipped" } }));
+        assert_eq!(ran_hit("Catch", &skipped), None);
+        let ran = parse_step(&json!({ "name": "Catch", "properties": { "status": "Succeeded", "code": "OK" } }));
+        let hit = ran_hit("Catch", &ran).unwrap();
+        assert_eq!((hit.step.as_str(), hit.part, hit.snippet.as_str()), ("Catch", "ran", "Succeeded"));
+        let looped = parse_step(&json!({ "name": "Catch", "properties": { "status": "Failed", "repetitionCount": 2 } }));
+        assert_eq!(ran_hit("Catch", &looped).unwrap().snippet, "Failed · in a loop (2 repetitions)");
+    }
 
     #[test]
     fn a_failed_action_reads_its_error_links_and_loop() {

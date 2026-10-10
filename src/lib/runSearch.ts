@@ -2,6 +2,8 @@
 // their steps' inputs or outputs. Power Automate can't search them, so every
 // run in the window is read: its runs come from Dataverse (`flowrun`), each
 // one is searched by the backend (`flowapi::search_run`), a few at a time.
+// The same way, "Catch ran" finds the runs where error handling ran
+// (`flowapi::steps_ran`): they can succeed all the same.
 import { create } from "zustand";
 import { api } from "../api";
 import { apiGuarded, deniedReason, useFlowApiAccess, type RunStatusFilter } from "./flowRuns";
@@ -26,7 +28,12 @@ export interface RunMatch {
   hits: RunSearchHit[];
 }
 
+/** Find a value in the steps' data, or which runs ran some steps (error handlers). */
+export type RunSearchKind = "value" | "ran";
+
 export interface RunSearch {
+  kind: RunSearchKind;
+  /** The value looked for ("" for "ran"). */
   needle: string;
   scope: RunSearchScope;
   /** What `scope` covers, for the summary ("Parse JSON", "every step"). */
@@ -83,7 +90,8 @@ export const useRunSearch = create<{
     needle: string,
     scope: RunSearchScope,
     scopeLabel: string,
-    window: SearchWindow
+    window: SearchWindow,
+    kind?: RunSearchKind
   ) => void;
   /** Searches the next `MAX_RUNS` runs of a capped search's window. */
   more: (connId: string, flowId: string) => void;
@@ -98,7 +106,7 @@ export const useRunSearch = create<{
     const key = keyOf(connId, flowId);
     const search = get().searches[key];
     if (!search) return;
-    const { needle, scope } = search;
+    const { needle, scope, kind } = search;
     const previous = live.get(key);
     if (previous) cancel(previous);
     const token: Token = { id: `${Date.now()}-${++searches}`, cancelled: false };
@@ -152,7 +160,12 @@ export const useRunSearch = create<{
           continue;
         }
         try {
-          const result = await apiGuarded(connId, api.flowRunSearch(connId, flowId, run.runName, needle, scope, token.id));
+          const result = await apiGuarded(
+            connId,
+            kind === "ran"
+              ? api.flowRunStepsRan(connId, flowId, run.runName, scope.steps ?? [], token.id)
+              : api.flowRunSearch(connId, flowId, run.runName, needle, scope, token.id)
+          );
           if (token.cancelled) return;
           update(key, (s) => ({
             scanned: s.scanned + 1,
@@ -183,11 +196,12 @@ export const useRunSearch = create<{
   return {
     searches: {},
 
-    start: (connId, flowId, needle, scope, scopeLabel, window) => {
+    start: (connId, flowId, needle, scope, scopeLabel, window, kind = "value") => {
       set((st) => ({
         searches: {
           ...st.searches,
           [keyOf(connId, flowId)]: {
+            kind,
             needle,
             scope,
             scopeLabel,

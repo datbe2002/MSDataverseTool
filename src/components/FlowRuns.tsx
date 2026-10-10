@@ -30,6 +30,8 @@ import {
   byteSize,
   errorGist,
   firstFailure,
+  loopedIds,
+  readsRepetitions,
   isTokenDenial,
   repetitionsKey,
   runSteps,
@@ -49,7 +51,7 @@ import {
 import { IdList, ListSkeleton } from "./LogParts";
 import { Collapse } from "./Collapse";
 import { JsonView, parseJson } from "./JsonView";
-import { MAX_RUNS, searchOf, useRunSearch, type SearchWindow } from "../lib/runSearch";
+import { MAX_RUNS, searchOf, useRunSearch, type RunSearchKind, type SearchWindow } from "../lib/runSearch";
 import { Combo } from "./FormParts";
 import { FlowDesigner } from "./FlowDesigner";
 import { StepIcon } from "./StepIcon";
@@ -471,6 +473,7 @@ function RunStepsSection({
   const outline = useMemo(() => (definition ? buildOutline(definition) : null), [definition]);
   const lines = useMemo(() => (data ? stepLines(data, outline) : []), [data, outline]);
   const byId = useMemo(() => (data && outline ? runStepsById(data, outline) : null), [data, outline]);
+  const loops = useMemo(() => (outline ? loopedIds(outline) : null), [outline]);
 
   const [view, setView] = useState<StepsView>(readStepsView);
   const pickView = (v: StepsView) => {
@@ -620,6 +623,7 @@ function RunStepsSection({
                     node={node}
                     step={byId!.get(node.id) ?? null}
                     at={atOf(byId!.get(node.id)?.name)}
+                    inLoop={loops?.has(node.id) ?? null}
                     onClose={() => setPicked(null)}
                   />
                 ),
@@ -653,6 +657,7 @@ function RunStepsSection({
                     flat={onlyFailed}
                     open={open.has(l.step.name)}
                     at={atOf(l.step.name)}
+                    inLoop={loops && l.node ? loops.has(l.node.id) : null}
                     onToggle={() => toggle(l.step.name)}
                   />
                 )
@@ -693,6 +698,7 @@ function RunStepPanel({
   node,
   step,
   at,
+  inLoop,
   onClose,
 }: {
   connId: string;
@@ -701,6 +707,8 @@ function RunStepPanel({
   node: OutlineNode;
   step: RunStep | null;
   at: Repetition | null;
+  /** The definition puts the step in a loop. */
+  inLoop: boolean | null;
   onClose: () => void;
 }) {
   const tone = step ? stepTone(step.status) : null;
@@ -731,7 +739,7 @@ function RunStepPanel({
               {step.startTime && <span>started {clock(step.startTime)}</span>}
               {duration !== null && tone !== "skipped" && <span>took {formatDuration(duration)}</span>}
             </div>
-            {(step.repetitionCount ?? 0) > 0 ? (
+            {readsRepetitions(step, inLoop) ? (
               <Repetitions connId={connId} flowId={flowId} runName={runName} step={step} at={at} />
             ) : (
               <StepDetail connId={connId} step={step} />
@@ -779,6 +787,7 @@ function StepItem({
   flat,
   open,
   at,
+  inLoop,
   onToggle,
 }: {
   connId: string;
@@ -789,6 +798,8 @@ function StepItem({
   flat: boolean;
   open: boolean;
   at: Repetition | null;
+  /** The definition puts the step in a loop (null when it isn't read). */
+  inLoop: boolean | null;
   onToggle: () => void;
 }) {
   const { step } = line;
@@ -835,7 +846,7 @@ function StepItem({
             {duration !== null && <span>took {formatDuration(duration)}</span>}
             <span className="font-mono">{step.name}</span>
           </div>
-          {looped ? <Repetitions connId={connId} flowId={flowId} runName={runName} step={step} at={at} /> : <StepDetail connId={connId} step={step} />}
+          {readsRepetitions(step, inLoop) ? <Repetitions connId={connId} flowId={flowId} runName={runName} step={step} at={at} /> : <StepDetail connId={connId} step={step} />}
         </div>
       </Collapse>
     </li>
@@ -858,7 +869,11 @@ function StepDetail({ connId, step }: { connId: string; step: RunStep }) {
   );
 }
 
-/** The repetitions of a step in a loop: pick one (`at`, else the first failure, to start with). */
+/**
+ * The repetitions of a step in a loop: pick one (`at`, else the first failure, to start with).
+ * Without a `repetitionCount` the step may not be in a loop after all: then no repetitions
+ * (or a refusal) shows the step itself.
+ */
 function Repetitions({
   connId,
   flowId,
@@ -886,12 +901,14 @@ function Repetitions({
   const label = (r: RunStep) =>
     r.repetition.length ? r.repetition.map((x) => `${x.scopeName.replace(/_/g, " ")} #${x.itemIndex + 1}`).join(" › ") : r.name;
 
+  const counted = (step.repetitionCount ?? 0) > 0;
   if (reps.loading && !reps.data)
     return (
       <div className="flex items-center gap-1.5 text-xs text-subtle" role="status">
-        <Loader size={12} className="text-brand" /> Reading {step.repetitionCount} repetitions…
+        <Loader size={12} className="text-brand" /> Reading {counted ? `${step.repetitionCount} ` : ""}repetitions…
       </div>
     );
+  if (!counted && (reps.error || !current)) return <StepDetail connId={connId} step={step} />;
   if (reps.error) return <div className="break-words text-xs text-warning">Couldn't read the repetitions: {reps.error}</div>;
   if (!current) return <div className="text-xs text-subtle">No repetitions recorded.</div>;
   const failed = list.filter((r) => stepTone(r.status) === "failed").length;
@@ -1257,7 +1274,7 @@ export function FlowRunsTab({
             </button>
           ))}
         </div>
-        <RunSearchBar connId={connId} flowId={flowId} options={options} filters={filters} />
+        <RunSearchBar connId={connId} flowId={flowId} options={options} definition={!!definition} filters={filters} />
 
         {search ? (
           <RunSearchResults connId={connId} flowId={flowId} runId={runId} names={names} onOpen={openFound} />
@@ -1380,21 +1397,32 @@ interface StepOption {
   type: string;
   /** Raw `type` in the definition (`InitializeVariable`…). */
   actionType: string;
+  /** Error handling (a Catch): runs when a step before it failed or timed out, not when it succeeded. Not one inside another. */
+  handler: boolean;
+}
+
+/** Runs after a step failed or timed out, and not after it succeeded. */
+function handlesErrors(n: OutlineNode): boolean {
+  return Object.values(n.after).some((statuses) => {
+    const s = statuses.map((x) => x.toLowerCase());
+    return (s.includes("failed") || s.includes("timedout")) && !s.includes("succeeded");
+  });
 }
 
 function stepOptions(outline: OutlineNode[] | null): StepOption[] {
   const out: StepOption[] = [];
-  const walk = (nodes: OutlineNode[], depth: number) => {
+  const walk = (nodes: OutlineNode[], depth: number, inHandler: boolean) => {
     for (const n of nodes) {
       if (n.kind === "branch") {
-        walk(n.children, depth);
+        walk(n.children, depth, inHandler);
         continue;
       }
-      out.push({ key: n.key, name: n.name, depth, trigger: n.kind === "trigger", type: n.type, actionType: n.actionType });
-      walk(n.children, depth + 1);
+      const handler = !inHandler && n.kind !== "trigger" && handlesErrors(n);
+      out.push({ key: n.key, name: n.name, depth, trigger: n.kind === "trigger", type: n.type, actionType: n.actionType, handler });
+      walk(n.children, depth + 1, inHandler || handler);
     }
   };
-  if (outline) walk(outline, 0);
+  if (outline) walk(outline, 0, false);
   return out;
 }
 
@@ -1413,18 +1441,24 @@ function RunSearchBar({
   connId,
   flowId,
   options,
+  definition,
   filters,
 }: {
   connId: string;
   flowId: string;
   options: StepOption[];
+  /** The flow's definition is read (its steps are `options`). */
+  definition: boolean;
   filters: { range: RunRange; status: RunStatusFilter };
 }) {
   const search = useRunSearch((s) => searchOf(s.searches, connId, flowId));
   const start = useRunSearch((s) => s.start);
   const stop = useRunSearch((s) => s.stop);
+  const [kind, setKind] = useState<RunSearchKind>(search?.kind ?? "value");
   const [needle, setNeedle] = useState(search?.needle ?? "");
   const [step, setStep] = useState(() => readSearchStep(flowId));
+  // "Catch ran": every error handler, or the one picked.
+  const [handlerKey, setHandlerKey] = useState("");
   // When: one of the list's ranges, or from–to (narrower is quicker).
   const [when, setWhen] = useState<RunRange | "custom">(filters.range);
   const [from, setFrom] = useState(() => localInput(Date.now() - 24 * 60 * 60_000));
@@ -1446,6 +1480,11 @@ function RunSearchBar({
     () => options.map((o) => ({ value: o.key, label: o.name, hint: o.type || undefined })),
     [options]
   );
+  const handlers = useMemo(() => options.filter((o) => o.handler), [options]);
+  const handlerOptions = useMemo(() => handlers.map((o) => ({ value: o.key, label: o.name, hint: o.type || undefined })), [handlers]);
+  const handler = handlers.find((o) => o.key === handlerKey) ?? null;
+  const ran = kind === "ran";
+  const ready = ran ? handlers.length > 0 : !!needle.trim();
 
   const pickStep = (key: string) => {
     setStep(key);
@@ -1458,7 +1497,7 @@ function RunSearchBar({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const value = needle.trim();
-    if (!value || running || windowProblem) return;
+    if (!ready || running || windowProblem) return;
     const window: SearchWindow = custom
       ? {
           since: new Date(fromMs).toISOString(),
@@ -1468,6 +1507,12 @@ function RunSearchBar({
           widenable: true,
         }
       : { since: runSince(when), until: null, status: filters.status, label: rangeLabel(when).toLowerCase(), widenable: when !== "28d" };
+    if (ran) {
+      const picked = handler ? [handler] : handlers;
+      const label = picked.length === 1 ? picked[0].name : `any of ${picked.length} error handlers`;
+      start(connId, flowId, "", { steps: picked.map((o) => o.key), trigger: false }, label, window, "ran");
+      return;
+    }
     const scope: RunSearchScope = !option
       ? { steps: null, trigger: false, skip }
       : option.trigger
@@ -1478,29 +1523,66 @@ function RunSearchBar({
 
   return (
     <form className="mx-3 mt-2.5 space-y-1.5" onSubmit={submit} role="search" aria-label="Find in run data">
-      <div className="relative">
-        <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-subtle" />
-        <input
-          className="input !h-8 w-full !pl-8 !text-[12.5px]"
-          placeholder="Find a value in the runs (PO number…)"
-          value={needle}
-          onChange={(e) => setNeedle(e.target.value)}
-          aria-label="Value to find in the runs' inputs and outputs"
-        />
+      <div className="seg !flex !h-7 text-[11.5px]" role="group" aria-label="Find runs by">
+        <button type="button" className="flex-1" aria-pressed={!ran} onClick={() => setKind("value")} title="Runs that had a value in their steps' inputs or outputs">
+          A value
+        </button>
+        <button
+          type="button"
+          className="flex-1"
+          aria-pressed={ran}
+          onClick={() => setKind("ran")}
+          title="Runs where error handling (a Catch) ran: they can still end as Succeeded"
+        >
+          Catch ran
+        </button>
       </div>
-      <Collapse open={!!needle.trim() || !!search}>
+      {ran ? (
+        <div className="text-[11px] leading-snug text-subtle">
+          {!definition
+            ? "Reading the flow's steps…"
+            : handlers.length
+            ? "Runs where a step that runs after a failure (a Catch) ran, whatever the run's status."
+            : "No step of this flow runs after a failure (Configure run after → has failed): there's no Catch to look for."}
+        </div>
+      ) : (
+        <div className="relative">
+          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-subtle" />
+          <input
+            className="input !h-8 w-full !pl-8 !text-[12.5px]"
+            placeholder="Find a value in the runs (PO number…)"
+            value={needle}
+            onChange={(e) => setNeedle(e.target.value)}
+            aria-label="Value to find in the runs' inputs and outputs"
+          />
+        </div>
+      )}
+      <Collapse open={ran ? handlers.length > 0 : !!needle.trim() || !!search}>
         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1.5">
-          <span className="text-[11.5px] text-subtle">in</span>
-          <div className="col-span-2 min-w-0" title="Looking in one step is much quicker than in every step">
-            <Combo
-              value={option ? option.key : ""}
-              onCommit={pickStep}
-              options={comboOptions}
-              placeholder={skip.length ? "Every step but Initialize variable (slow)" : "Every step (slow)"}
-              ariaLabel="Step to look in"
-              strict
-            />
-          </div>
+          <span className="text-[11.5px] text-subtle">{ran ? "step" : "in"}</span>
+          {ran ? (
+            <div className="col-span-2 min-w-0" title="The error handling steps: they run when a step before them failed or timed out">
+              <Combo
+                value={handler ? handler.key : ""}
+                onCommit={setHandlerKey}
+                options={handlerOptions}
+                placeholder={handlers.length === 1 ? handlers[0].name : `Any error handler (${handlers.length})`}
+                ariaLabel="Error handling step"
+                strict
+              />
+            </div>
+          ) : (
+            <div className="col-span-2 min-w-0" title="Looking in one step is much quicker than in every step">
+              <Combo
+                value={option ? option.key : ""}
+                onCommit={pickStep}
+                options={comboOptions}
+                placeholder={skip.length ? "Every step but Initialize variable (slow)" : "Every step (slow)"}
+                ariaLabel="Step to look in"
+                strict
+              />
+            </div>
+          )}
           <span className="text-[11.5px] text-subtle">when</span>
           <select
             className="input !h-7 min-w-0 !px-2 !text-[12px]"
@@ -1521,7 +1603,7 @@ function RunSearchBar({
               Stop
             </button>
           ) : (
-            <button type="submit" className="btn btn-primary btn-sm shrink-0" disabled={!needle.trim() || !!windowProblem} title={windowProblem ?? undefined}>
+            <button type="submit" className="btn btn-primary btn-sm shrink-0" disabled={!ready || !!windowProblem} title={windowProblem ?? undefined}>
               Search
             </button>
           )}
@@ -1611,6 +1693,7 @@ function RunSearchResults({
   const total = `${search.total.toLocaleString()}${search.listed ? "" : "+"}`;
   const found = matches.length;
   const pct = search.total ? Math.min(100, (search.scanned / search.total) * 100) : 0;
+  const ran = search.kind === "ran";
   const summary =
     search.status === "running"
       ? `Searching… ${search.scanned.toLocaleString()} / ${total} runs`
@@ -1619,8 +1702,9 @@ function RunSearchResults({
       : search.status === "error"
       ? "The search stopped"
       : found
-      ? `Found in ${found.toLocaleString()} of ${search.total.toLocaleString()} run${search.total === 1 ? "" : "s"}`
-      : `Not found in ${search.total.toLocaleString()} run${search.total === 1 ? "" : "s"}`;
+      ? `${ran ? "Ran in" : "Found in"} ${found.toLocaleString()} of ${search.total.toLocaleString()} run${search.total === 1 ? "" : "s"}`
+      : `${ran ? "Didn't run in" : "Not found in"} ${search.total.toLocaleString()} run${search.total === 1 ? "" : "s"}`;
+  const what = ran ? `${search.scopeLabel} ran` : `“${search.needle}” in ${search.scopeLabel}`;
   const label = (step: string) => names.get(step) ?? step.replace(/_/g, " ");
 
   return (
@@ -1633,8 +1717,8 @@ function RunSearchResults({
               <span className="truncate">{summary}</span>
               {search.status !== "error" && found > 0 && <span className="badge badge-brand shrink-0">{found}</span>}
             </div>
-            <div className="mt-0.5 truncate text-[11.5px] text-subtle" title={`“${search.needle}” in ${search.scopeLabel} · ${search.windowLabel}`}>
-              “{search.needle}” in {search.scopeLabel} · {search.windowLabel}
+            <div className="mt-0.5 truncate text-[11.5px] text-subtle" title={`${what} · ${search.windowLabel}`}>
+              {what} · {search.windowLabel}
             </div>
           </div>
           <button className="btn btn-ghost btn-icon btn-sm shrink-0" onClick={() => clear(connId, flowId)} title="Clear the search (back to the run list)" aria-label="Clear the search">
@@ -1668,7 +1752,7 @@ function RunSearchResults({
           </div>
         )}
       </div>
-      <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="Runs where it was found">
+      <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label={ran ? "Runs where it ran" : "Runs where it was found"}>
         {matches.map(({ run, hits }) => (
           <li key={run.id} className="fade-in">
             <RunItem row={run} selected={run.id === runId} onOpen={() => onOpen(run, hits[0].step, hits[0].repetition)} />
@@ -1681,14 +1765,20 @@ function RunSearchResults({
                   title="Open the run at this step"
                 >
                   <div className="truncate text-[11.5px] text-muted">
-                    {label(h.step)} <span className="text-subtle">· {h.part}</span>
+                    {label(h.step)} {!ran && <span className="text-subtle">· {h.part}</span>}
                     {h.repetition.length > 0 && (
                       <span className="text-subtle"> · {h.repetition.map((r) => `${label(r.scopeName)} #${r.itemIndex + 1}`).join(" › ")}</span>
                     )}
                   </div>
-                  <div className="line-clamp-2 break-all font-mono text-[11px] leading-4 text-subtle">
-                    <Marked text={h.snippet} needle={search.needle} />
-                  </div>
+                  {ran ? (
+                    <div className={`line-clamp-2 break-words text-[11px] leading-4 ${h.snippet.startsWith("Failed") ? "text-danger" : "text-subtle"}`}>
+                      {h.snippet}
+                    </div>
+                  ) : (
+                    <div className="line-clamp-2 break-all font-mono text-[11px] leading-4 text-subtle">
+                      <Marked text={h.snippet} needle={search.needle} />
+                    </div>
+                  )}
                 </button>
               ))}
               {hits.length > 3 && <div className="px-2 text-[11px] text-subtle">+{hits.length - 3} more place(s) in this run</div>}
@@ -1700,9 +1790,13 @@ function RunSearchResults({
             <div className="empty-icon">
               <Search size={18} />
             </div>
-            <div className="mt-3 text-sm font-medium">{search.status === "error" ? "Search stopped" : "Nothing found"}</div>
+            <div className="mt-3 text-sm font-medium">{search.status === "error" ? "Search stopped" : ran ? "No catch ran" : "Nothing found"}</div>
             <div className="mt-1 text-xs text-subtle">
-              {search.status === "done"
+              {search.status === "done" && ran
+                ? `${search.scopeLabel[0].toUpperCase()}${search.scopeLabel.slice(1)} didn't run in any run (${search.windowLabel}).${
+                    search.widenable ? " Try a wider time window." : ""
+                  }`
+                : search.status === "done"
                 ? `No run (${search.windowLabel}) has “${search.needle}” in ${search.scopeLabel}.${
                     search.widenable ? " Try a wider time window" : ""
                   }${search.scope.steps ? `${search.widenable ? ", or" : " Try"} every step.` : search.widenable ? "." : ""}${
@@ -1713,7 +1807,7 @@ function RunSearchResults({
           </li>
         )}
         {!matches.length && search.status === "running" && (
-          <li className="px-3 py-8 text-center text-xs text-subtle">Runs where it's found show up here as the search goes.</li>
+          <li className="px-3 py-8 text-center text-xs text-subtle">Runs where {ran ? "it ran" : "it's found"} show up here as the search goes.</li>
         )}
       </ul>
     </>
